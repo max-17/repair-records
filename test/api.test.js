@@ -24,6 +24,7 @@ test('authenticated records persist, retries are safe, invalid data and cross-ma
   const view=await fetch(base+'/api/repairs',{headers:readonly});assert.equal(view.status,200);assert.equal(view.headers.get('cache-control'),'no-store');
   assert.equal((await fetch(base+'/api/repairs',{method:'POST',headers:readonly,body:'{}'})).status,403);
   assert.equal((await request('/api/repairs?page=0')).status,400);
+  assert.equal((await request('/api/repairs?path=repairs')).status,200);
 
   const data={request_id:randomUUID(),customer:'Bekzod aka',device:'Samsung S23',work:'Ekran almashtirish',price_uzs:200000,due_date:'2026-11-15'};
   const saved=await request('/api/repairs','POST',data);assert.equal(saved.status,201);

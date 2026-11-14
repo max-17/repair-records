@@ -49,7 +49,7 @@ export function createApp({db, apiKey, masterId, dashboardKey} = {}) {
     res.json(row);
   });
   app.get('/api/repairs',async(req,res)=> {
-    const parsed=z.object({q:z.string().max(100).optional(),status:fields.shape.status,page:z.coerce.number().int().min(1).max(100000).optional()}).strict().safeParse(req.query);
+    const parsed=z.object({q:z.string().max(100).optional(),status:fields.shape.status,page:z.coerce.number().int().min(1).max(100000).optional()}).safeParse(req.query);
     if(!parsed.success) return res.status(400).json({error:'Invalid query'});
     const {q='',status,page=1}=parsed.data;
     const result=await db.execute({sql:`SELECT * FROM repair_jobs WHERE master_id=? AND (instr(lower(customer),lower(?))>0 OR instr(lower(device),lower(?))>0) ${status?'AND status=?':''} ORDER BY created_at DESC,id LIMIT 100 OFFSET ?`,args:status?[masterId,q,q,status,(page-1)*100]:[masterId,q,q,(page-1)*100]});
