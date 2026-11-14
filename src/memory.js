@@ -1,6 +1,21 @@
 import {todayInTashkent} from './time.js';
 const keys=['customer','device','work','price_uzs','due_date','status','start_date','end_date'];
-export function nextState(previous,plan,result,text,at){
+export function messageTiming(state,now){
+ const previous=state.last_exchange?.at;
+ const timestamp=Date.parse(previous);
+ const valid=Number.isFinite(timestamp);
+ const seconds=valid?Math.max(0,Math.floor((now-timestamp)/1000)):null;
+ return {
+  previous_message_at:valid?previous:null,
+  current_message_at:new Date(now).toISOString(),
+  inactivity_seconds:seconds,
+  current_local_date:todayInTashkent(new Date(now)),
+  previous_local_date:valid?todayInTashkent(new Date(timestamp)):null,
+  crossed_calendar_day:valid?todayInTashkent(new Date(timestamp))!==todayInTashkent(new Date(now)):false,
+  timezone:'Asia/Tashkent'
+ };
+}
+export function nextState(previous,plan,result,text,at,timing=messageTiming(previous,Date.parse(at))){
  const fresh=plan.memory?.topic==='new';
  const state=fresh?{}:{...previous};
  const fields=Object.fromEntries(keys.filter(k=>plan[k]!=null).map(k=>[k,plan[k]]));
@@ -20,9 +35,17 @@ export function nextState(previous,plan,result,text,at){
   state.active_repair={id:result.repair.id,customer:result.repair.customer,device:result.repair.device,at};
  }
  if(result.kind==='analytics')state.last_report={filters:fields,at};
+ state.last_gap_seconds=timing.inactivity_seconds;
  state.last_exchange={user:text.slice(0,3000),assistant:result.reply.slice(0,1000),kind:result.kind,at};
  return state;
 }
 export function activeReferenceIsStale(state,now){
  return !state.active_repair||todayInTashkent(new Date(state.active_repair.at))!==todayInTashkent(new Date(now));
+}
+
+export function resolveReportPeriod(plan,text,state,timing){
+ if(plan.action==='analytics' && state.pending?.action==='analytics' && /^(1|bir)\s+kun[.!?]?$/iu.test(text.trim())){
+  return {...plan,start_date:timing.current_local_date,end_date:timing.current_local_date};
+ }
+ return plan;
 }

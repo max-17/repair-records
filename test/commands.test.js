@@ -8,6 +8,7 @@ import {setup} from '../src/db.js';
 import {commandService,todayInTashkent} from '../src/commands.js';
 import {telegramWebhook} from '../src/telegram.js';
 import {createApp} from '../src/app.js';
+import {messageTiming,resolveReportPeriod} from '../src/memory.js';
 const blank={action:'clarify',customer:null,device:null,work:null,price_uzs:null,due_date:null,status:null,start_date:null,end_date:null,question:null};
 test('structured commands persist safely, isolate masters, ask about ambiguity and aggregate beyond 100 rows',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'commands-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
@@ -55,14 +56,14 @@ test('Telegram verifies secret and sender before invoking AI and assigns master 
 
 test('structured state survives restarts and long gaps, stays scoped and resets idempotently',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'state-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
- let time=Date.parse('2026-11-14T10:00:00Z');let observed;let calls=0;
- const parse=async(text,{state})=>{calls++;observed=state;return {...blank,question:'Qaysi davr?',memory:{topic:'continue',pending_action:'analytics',uses_active_repair:false}};};
+ let time=Date.parse('2026-11-14T10:00:00Z');let observed;let observedTiming;let calls=0;
+ const parse=async(text,{state,timing})=>{calls++;observed=state;observedTiming=timing;return {...blank,question:'Qaysi davr?',memory:{topic:'continue',pending_action:'analytics',uses_active_repair:false}};};
  let run=commandService({db,parse,now:()=>time});
  const send=(text,id,conversationId='a',masterId='owner')=>run({text,requestId:id,conversationId,masterId});
  try{
-  await send('Menga hisobot ber','1');assert.deepEqual(observed,{});
+  await send('Menga hisobot ber','1');assert.deepEqual(observed,{});assert.equal(observedTiming.inactivity_seconds,null);
   run=commandService({db,parse,now:()=>time});time+=7*24*60*60*1000;
-  await send('1 kun','2');assert.equal(observed.pending.action,'analytics');assert.equal(observed.pending.question,'Qaysi davr?');
+  await send('1 kun','2');assert.equal(observedTiming.inactivity_seconds,604800);assert.equal(observedTiming.crossed_calendar_day,true);assert.equal(observed.pending.action,'analytics');assert.equal(observed.pending.question,'Qaysi davr?');
   const count=calls;await send('1 kun','2');assert.equal(calls,count);
   await send('other chat','3','b');assert.deepEqual(observed,{});
   await send('other master','4','a','other');assert.deepEqual(observed,{});
@@ -117,4 +118,21 @@ test('draft fields are completed across messages; confirmed IDs prevent wrong up
   const memory=await db.execute("SELECT state_json FROM conversation_state WHERE master_id='owner' AND conversation_id='a'");
   const state=JSON.parse(memory.rows[0].state_json);assert.ok(!state.active_repair);assert.ok(!state.pending);assert.ok(state.last_report);
  }finally{db.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('inactivity metadata handles short pauses, Tashkent midnight and invalid prior times',()=>{
+ const state={last_exchange:{at:'2026-11-14T18:59:50Z'}};
+ const short=messageTiming(state,Date.parse('2026-11-14T18:59:55Z'));assert.equal(short.inactivity_seconds,5);assert.equal(short.crossed_calendar_day,false);
+ const midnight=messageTiming(state,Date.parse('2026-11-14T19:00:10Z'));assert.equal(midnight.inactivity_seconds,20);assert.equal(midnight.crossed_calendar_day,true);
+ assert.equal(messageTiming({last_exchange:{at:'invalid'}},Date.now()).inactivity_seconds,null);
+ assert.equal(messageTiming(state,Date.parse('2026-11-14T18:00:00Z')).inactivity_seconds,0);
+});
+
+test('one-day report follow-up uses the current Tashkent date after a pause',()=>{
+ const state={pending:{action:'analytics'},last_exchange:{at:'2026-11-12T10:00:00Z'}};
+ const timing=messageTiming(state,Date.parse('2026-11-14T19:01:00Z'));
+ const plan={...blank,action:'analytics',start_date:'2026-11-14',end_date:'2026-11-14'};
+ const resolved=resolveReportPeriod(plan,'1 kun',state,timing);assert.equal(resolved.start_date,'2026-11-15');assert.equal(resolved.end_date,'2026-11-15');
+ assert.equal(resolveReportPeriod(plan,'1 kun oldin',state,timing).start_date,'2026-11-14');
+ assert.equal(resolveReportPeriod(plan,'1 kun',{},timing).start_date,'2026-11-14');
 });
