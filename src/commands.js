@@ -15,6 +15,12 @@ export const planSchema=z.object({
 const labels={received:'Qabul qilindi',in_progress:'Jarayonda',ready:'Tayyor',delivered:'Topshirildi',cancelled:'Bekor qilindi'};
 const money=value=>new Intl.NumberFormat('uz-UZ').format(value)+' so‘m';
 export const todayInTashkent=(now=new Date())=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tashkent',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+export function boundedHistory(turns) {
+ const recent=turns.slice(-10);
+ // Drop whole oldest exchanges so questions and answers stay paired.
+ while(recent.length>1 && JSON.stringify(recent).length>16000)recent.shift();
+ return recent;
+}
 export function geminiParser(env) {
  return async (text,{history=[]}={})=>{
   if(!env.GOOGLE_GENERATIVE_AI_API_KEY)throw new Error('AI_NOT_CONFIGURED');
@@ -49,7 +55,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
    const stored=await db.execute({sql:'SELECT turns_json,revision,expires_at FROM conversation_memory WHERE master_id=? AND conversation_id=?',args:[masterId,conversationId]});
    memory=stored.rows[0]||null;
   }
-  const history=memory&&Number(memory.expires_at)>now()?JSON.parse(memory.turns_json):[];
+  const history=memory&&Number(memory.expires_at)>now()?boundedHistory(JSON.parse(memory.turns_json)):[];
   const plan=reset?{...Object.fromEntries(Object.keys(planSchema.shape).map(k=>[k,null])),action:'clarify'}:planSchema.parse(await parse(text,{history}));
   if(plan.start_date&&plan.end_date&&plan.start_date>plan.end_date)throw new Error('INVALID_DATE_RANGE');
   const tx=await db.transaction('write');
@@ -98,7 +104,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
    if(reset)result={kind:'reset',reply:'Yangi suhbat boshlandi. Oldingi buyurtmalar saqlanib qoladi. Nima qilamiz?'};
    if(!result)throw new Error('INVALID_PLAN');
    if(conversationId){
-    const turns=reset?[]:[...history,{user:text,assistant:result.reply.slice(0,1600),kind:result.kind,at:new Date(now()).toISOString()}].slice(-3);
+    const turns=reset?[]:boundedHistory([...history,{user:text,assistant:result.reply.slice(0,1600),kind:result.kind,at:new Date(now()).toISOString()}]);
     await tx.execute({sql:'INSERT INTO conversation_memory(master_id,conversation_id,turns_json,revision,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(master_id,conversation_id) DO UPDATE SET turns_json=excluded.turns_json,revision=excluded.revision,expires_at=excluded.expires_at',args:[masterId,conversationId,JSON.stringify(turns),Number(memory?.revision??0)+1,now()+30*60*1000]});
    }
    await tx.execute({sql:'INSERT INTO command_requests(master_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[masterId,requestId,hash,JSON.stringify(result)]});

@@ -5,7 +5,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {setup} from '../src/db.js';
-import {commandService,todayInTashkent} from '../src/commands.js';
+import {commandService,todayInTashkent,boundedHistory} from '../src/commands.js';
 import {telegramWebhook} from '../src/telegram.js';
 import {createApp} from '../src/app.js';
 const blank={action:'clarify',customer:null,device:null,work:null,price_uzs:null,due_date:null,status:null,start_date:null,end_date:null,question:null};
@@ -68,7 +68,7 @@ test('memory survives service restart, stays scoped, expires, resets, and does n
   await send('other master','4','chat-a','other');assert.equal(observed.length,0);
   await assert.rejects(send('1 kun','2','chat-b'),/REQUEST_CONFLICT/);
   time+=31*60*1000;await send('old context?','5');assert.equal(observed.length,0);
-  await send('again','6');await send('again','7');await send('again','8');assert.equal(observed.length,3);
+  for(let i=0;i<12;i++)await send('again',`history-${i}`);assert.equal(observed.length,10);
   const beforeReset=calls;assert.equal((await send('/new','9')).kind,'reset');assert.equal(calls,beforeReset);
   await send('after reset','10');assert.equal(observed.length,0);
   await send('/new','9'); // a retried reset must not erase newer context
@@ -89,4 +89,11 @@ test('concurrent turns fail safely when conversation changed during generation',
   await assert.rejects(slow,/CONVERSATION_CHANGED/);
   const cache=await db.execute("SELECT count(*) AS total FROM command_requests WHERE request_id='slow'");assert.equal(cache.rows[0].total,0);
  }finally{db.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('history retains ten exchanges and drops oldest whole exchanges to respect context budget',()=>{
+ const small=Array.from({length:15},(_,i)=>({user:String(i),assistant:'reply'}));
+ const ten=boundedHistory(small);assert.equal(ten.length,10);assert.equal(ten[0].user,'5');
+ const large=Array.from({length:10},(_,i)=>({user:String(i)+'x'.repeat(3000),assistant:'y'.repeat(1600)}));
+ const bounded=boundedHistory(large);assert.ok(JSON.stringify(bounded).length<=16000);assert.equal(bounded.at(-1).user,large.at(-1).user);assert.ok(bounded.length<10);
 });
