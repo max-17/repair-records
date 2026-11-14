@@ -17,5 +17,6 @@
     "api/index.js": {
       "includeFiles": "public/**"
     }
-  }
+  },
+  "framework": null
 }
