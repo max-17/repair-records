@@ -37,8 +37,11 @@ test('authenticated records persist, retries are safe, invalid data and cross-ma
   assert.equal((await (await request('/api/repairs?page=2')).json()).repairs.length,0);
   const persisted=await (await fetch(base+'/api/repairs',{headers:readonly})).json();assert.equal(persisted.repairs[0].id,job.id);assert.equal(persisted.master_id,'aziz');
   const updated=await request(`/api/repairs/${job.id}`,'PATCH',{status:'ready'});assert.equal((await updated.json()).status,'ready');
+  const historyResponse=await fetch(base+`/api/repairs/${job.id}/events`,{headers:readonly});assert.equal(historyResponse.status,200);
+  const history=await historyResponse.json();assert.equal(history.events.length,2);const event=history.events.find(e=>e.event_type==='updated');assert.equal(event.before.status,'received');assert.equal(event.after.status,'ready');assert.equal(event.actor_id,'api:aziz');
   await db.execute({sql:'UPDATE repair_jobs SET master_id=? WHERE id=?',args:['other',job.id]});
   assert.equal((await request(`/api/repairs/${job.id}`,'PATCH',{status:'delivered'})).status,404);
+  assert.equal((await fetch(base+`/api/repairs/${job.id}/events`,{headers:readonly})).status,404);
   assert.equal((await (await request('/api/repairs')).json()).repairs.length,0);
  } finally {await new Promise(r=>server.close(r));db.close();await rm(dir,{recursive:true,force:true});}
 });

@@ -19,22 +19,30 @@ export function nextState(previous,plan,result,text,at,timing=messageTiming(prev
  const fresh=plan.memory?.topic==='new';
  const state=fresh?{}:{...previous};
  const fields=Object.fromEntries(keys.filter(k=>plan[k]!=null).map(k=>[k,plan[k]]));
- if(result.kind==='reset')return {};
+ if(result.kind==='expired_button')return previous;
+ if(result.kind==='reset')return {phase:'idle'};
  // State contains facts accepted by the backend, not a model-generated narrative.
  if(result.kind==='clarify'){
   const action=plan.memory?.pending_action||(['create','update'].includes(plan.action)?plan.action:null);
-  if(action)state.pending={action,fields:plan.memory?.topic==='continue'&&previous.pending?.action===action?{...previous.pending.fields,...fields}:fields,question:result.reply,at};
+  if(action)state.pending={action,...(plan.memory?.topic==='continue'&&previous.pending?.action===action&&previous.pending?.repair_id?{repair_id:previous.pending.repair_id}:{}),fields:plan.memory?.topic==='continue'&&previous.pending?.action===action?{...previous.pending.fields,...fields}:fields,question:result.reply,at};
   else if(plan.memory?.topic!=='none')state.pending={action:null,fields,question:result.reply,at};
  }else delete state.pending;
+ if(result.kind==='cancelled_confirmation')delete state.pending;
+ if(result.kind==='editing')state.pending=result.draft;
  if(result.stale_reference){
   delete state.active_repair;
   // Do not carry inferred old identifiers into the confirmation question.
   state.pending={action:'update',fields:Object.fromEntries(Object.entries(fields).filter(([k])=>!['customer','device'].includes(k))),question:result.reply,at};
  }
+ if(result.kind==='confirmation')state.confirmation=result.proposal;
+ else if(plan.memory?.topic==='new'||!['clarify','expired_button'].includes(result.kind))delete state.confirmation;
+ if(result.kind==='selection')state.selection=result.selection;
+ else if(plan.memory?.topic==='new'||!['clarify','expired_button'].includes(result.kind))delete state.selection;
  if(result.repair){
   state.active_repair={id:result.repair.id,customer:result.repair.customer,device:result.repair.device,at};
  }
  if(result.kind==='analytics')state.last_report={filters:fields,at};
+ state.phase=state.confirmation?'awaiting_confirmation':state.selection?'awaiting_selection':state.pending?'collecting_details':['created','updated','analytics','list'].includes(result.kind)?'completed':'idle';
  state.last_gap_seconds=timing.inactivity_seconds;
  state.last_exchange={user:text.slice(0,3000),assistant:result.reply.slice(0,1000),kind:result.kind,at};
  return state;

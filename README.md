@@ -1,81 +1,80 @@
-# Text repair records: ChatGPT + Turso
+# Ustaxona repair records
 
-Two interfaces share the same Turso records: a Custom GPT can call the structured API without a separate model API key, or a Telegram bot can interpret text using your Google Gemini API key. The existing dashboard remains read-only.
+Uzbek text commands in Telegram, Gemini 3.5 Flash-Lite for interpretation, Turso for records and conversation state, and a read-only web dashboard. Hosted at https://repair-records.vercel.app.
 
-## Run
+## Local setup
 
 1. `npm ci`
-2. Set `DATABASE_URL`, `DATABASE_TOKEN`, `ACTION_API_KEY` (random secret), and `MASTER_ID` in `.env`. Keep it private. Existing Telegram credentials are unused.
-3. `npm run db:setup` creates `repair_jobs` without changing existing tables.
+2. Fill your private `.env` using `.env.example`. Never commit it or paste secrets in chat.
+3. `npm run db:setup` adds the required tables and indexes without deleting existing records.
 4. `npm test`, then `npm start`.
 
-## Connect ChatGPT
+Node 24 is used in development. Managed workspaces that require an HTTPS proxy need `NODE_USE_ENV_PROXY=1` before Node/npm commands. Hosts with direct outbound access do not.
 
-1. Host the API at a public HTTPS URL on a provider whose terms permit your use. Localhost cannot be reached by GPT Actions. This project includes a Vercel function adapter; hosting is not configured or deployed yet.
-2. Configure the same four environment variables on the host. Never place the Turso token in GPT instructions or the OpenAPI schema.
-3. Replace the placeholder server URL in `openapi.json` with your HTTPS URL.
-4. Create a **private** Custom GPT, paste `GPT-INSTRUCTIONS.md` into Instructions, and import `openapi.json` into Actions.
-5. Set Action authentication to API key / Bearer using `ACTION_API_KEY` from `.env`.
-6. Test: “Bekzod akadan Samsung S23 oldim, ekran almashtirish 200 ming, ertaga tayyor.” Confirm the Action if ChatGPT asks, then search for the saved record.
+## Deployment and Telegram
 
-The GPT-to-API flow has not been verified until deployment and this test succeed. This current chat has no automatically attached Action.
+Set these in Vercel's Production environment, then redeploy after changing them:
 
-## Limits
+- `DATABASE_URL`, `DATABASE_TOKEN`
+- `ACTION_API_KEY`, `MASTER_ID`, `DASHBOARD_KEY`
+- `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_MODEL=gemini-3.5-flash-lite`
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
+- `TELEGRAM_MASTERS` — JSON mapping actual numeric Telegram user IDs to master IDs, e.g. `{"123456789":"owner"}`. The number is a placeholder. Names are not identities.
 
-One credential represents one configured master (`MASTER_ID=owner` by default); change it to a stable real master identifier before creating records. Do not share this GPT or its key with other masters. Multi-master access requires individual authentication, ideally OAuth. No payment ledger, deletion, or voice API yet. Gemini commands provide job counts by status and totals of agreed prices; these are not received payments or profit. Search returns at most 100 recent jobs. Writes use request IDs to make retries safe; records are scoped to the configured master. Date-only promises use Asia/Tashkent in the GPT instructions. Remote setup creates only the table; automated tests use temporary local SQLite databases.
+Set `PUBLIC_BASE_URL=https://repair-records.vercel.app` locally and run `npm run telegram:setup` to register `/api/telegram/webhook`, its secret, and both `message` and `callback_query` updates. Re-run this after upgrading from a message-only webhook. Pending updates are not discarded.
 
-In managed workspaces requiring an HTTPS proxy, run Node 24 with `NODE_USE_ENV_PROXY=1` (for example, `NODE_USE_ENV_PROXY=1 npm run db:setup`). This is unnecessary on hosts with direct outbound access.
+Only allowlisted senders in private chats are processed. All database access is scoped to the authenticated master. Google is called directly through the AI SDK Google provider; there is no paid fallback model. Google account quotas and billing settings apply.
 
-## Web dashboard
+## Commands and buttons
 
-Open `/` on the running API host. The Uzbek dashboard reads the same Turso repair records and offers customer/device search, status filters, refresh, and 100-record pages. It does not create or change records.
-
-Use `DASHBOARD_KEY` from your private `.env` to sign in. Set that variable on the deployed host too. The key grants read-only access for the configured `MASTER_ID`; it is separate from the GPT Action write key. It stays only in browser memory and is cleared on sign-out or reload. Use HTTPS when hosted. Do not use your Turso token as a dashboard login. The current database is empty, so an empty list is expected until a repair is saved. The login page and static assets are public; customer data requires a valid access key.
-
-Verified: local API/static-asset tests, rejected unauthenticated reads, rejected writes with the dashboard key, pagination, and an authenticated live read from Turso through the dashboard API. Browser visual verification and public deployment have not been completed.
-
-## Vercel startup errors
-
-`.env` is intentionally excluded from GitHub. In Vercel → Project → Settings → Environment Variables, set `DATABASE_URL`, `DATABASE_TOKEN`, `ACTION_API_KEY`, `MASTER_ID`, and `DASHBOARD_KEY` using the values in your local `.env`. Select Production (and Preview if needed), then redeploy: existing deployments do not pick up new environment variables. Never commit `.env` to fix missing deployment variables.
-
-The dashboard now loads even when database or Action configuration is absent. Its API returns a setup message with HTTP 503 instead of throwing during function initialization. `/health` returns 503 until the database client, Action key, and master are configured; it does not check live database connectivity. Invalid tokens and network errors still require checking runtime logs. If the function still crashes, inspect Vercel runtime logs for the actual error.
-
-
-## Gemini text commands and Telegram
-
-Selected model: `gemini-3.5-flash-lite`. Google is called directly through the Vercel AI SDK Google provider, using your own free-tier Google account rather than a billed AI Gateway route. There is no fallback model. Account quotas apply; enabling Google billing can make usage billable. Regular `gemini-3.5-flash` is a different deprecated model and Google redirects it to 3.6.
-
-1. Get a Google API key from https://aistudio.google.com/api-keys and put it in your private `.env` as `GOOGLE_GENERATIVE_AI_API_KEY`. Never send the key in chat or commit it.
-2. Set `GEMINI_MODEL=gemini-3.5-flash-lite`.
-3. Configure `TELEGRAM_MASTERS` as a JSON object mapping numeric Telegram **user IDs** to stable master IDs, e.g. `{"123456789":"owner"}`. The example number is a placeholder. Use `owner` for the same master whose current dashboard records are assigned to owner. Telegram display names are not identities. Only allowlisted private-chat senders are processed.
-4. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (random secret; generated locally), and `PUBLIC_BASE_URL=https://repair-records.vercel.app`.
-5. Run `npm run db:setup` once to add `command_requests` for retry protection. This preserves existing repairs.
-6. Configure these variables in Vercel (in addition to the database and existing API/dashboard keys), then deploy.
-7. Run `npm run telegram:setup` locally to register the Telegram webhook. This requires a Google key and at least one configured master. It never discards pending Telegram updates.
-8. Test the bot with fictional records first. The webhook returns Telegram's sendMessage response. API failures return 503 so Telegram can retry; database mutations and cached command results commit atomically to prevent duplicate changes.
-
-Supported examples:
 - `Bekzod akadan iPhone 14 Pro oldim, ekran almashtirish, 1 million so‘m, ertaga tayyor.`
 - `Bekzod aka iPhone 14 Pro tayyor.`
-- `Bugun nechta buyurtma oldim?`
-- `Bu oy kelishilgan narxlar jami qancha?`
+- `Narxini 900 mingga o‘zgartir.`
+- `Menga hisobot ber` → `1 kun`.
+- `/new` or `/start` clears conversation context without deleting repairs.
 
-Telegram stores a compact structured working state per authenticated master + Telegram chat/user: pending task, known fields, last confirmed repair ID, report filters, and last exchange. Short answers complete the pending task. There is no automatic timeout; /new or /start clears state without deleting records. Implicit repair references from a previous Tashkent calendar day require clarification. The structured command API remains stateless. Ambiguous matches require a more specific message. Payments, profit, changing assigned masters, completion-time reports, and voice are unsupported. Analytics date filters apply to **creation dates in Asia/Tashkent**, scoped to the authenticated master, and query all matching rows rather than the dashboard's 100-row page. Agreed totals disclose missing prices and are not revenue.
+The server manages task phases: `idle`, `collecting_details`, `awaiting_selection`, `awaiting_confirmation`, and `completed`.
 
-For another client, `POST /api/commands` with the Action Bearer key and JSON `{ "request_id": "a UUID", "text": "your full command" }`. Preserve request_id and text for retries. The read-only dashboard key cannot invoke commands. Telegram uses a separate webhook secret and derives the master from its sender allowlist.
+Price changes, delivery/cancellation, fuzzy matches and implicit updates after a pause require confirmation. The bot shows old → new values and buttons for **✅ Tasdiqlash**, **✏️ Tahrirlash**, and **❌ Bekor qilish**. Multiple matching repairs get selection buttons before confirmation. Edit returns to a draft for that exact repair; the next revision gets a new proposal. Simple unambiguous intake and ready-status commands do not require extra clicks.
 
-Verified with an injected parser: command persistence, duplicate retries, conflict rejection, ambiguous updates, cross-master isolation, date validation, analytics across more than 100 jobs, and webhook authentication. The live Gemini/Telegram flow still requires your Google key, Telegram user ID mapping, deployment variables, and webhook registration before it can be tested.
+Buttons are tied to a random token for the current proposal, user/chat, repair ID, and snapshot. Old buttons cannot approve a new proposal. A changed record or a proposal older than 15 minutes cannot be approved. This limit applies only to pending write approval: conversation state itself does not expire. Typed `ha`/`yo‘q`, `/confirm` and `/cancel` also work for the current task.
 
+## Memory and analytics
 
-## Conversation state
+Turso stores compact structured state per master + Telegram chat/user: a pending task, known fields, backend-confirmed repair ID, report filters and the latest exchange. This is operational context, not private reasoning or an unlimited transcript. The backend updates state from validated plans and actual database results. Completed creates are not replayed as new records; a clear new topic replaces old draft details.
 
-`conversation_state` in Turso replaces rolling chat history. It stores a pending task and its extracted fields/question, the last backend-confirmed repair ID, recent report filters, and one latest exchange. It stores operational facts, not private model reasoning or a growing transcript. The backend derives state from the validated plan and actual database result after each message. State has no inactivity timeout; /new and /start reset it.
+Gemini receives previous/current timestamps, inactivity duration, Tashkent local date and whether a pause crossed a calendar day. A pause is a relevance cue, not automatic forgetting. Clear answers may continue pending tasks; ambiguous references ask for clarification. Implicit repair references from a previous calendar day require customer/device clarification.
 
-Follow-ups can complete partial repair intake, refer to the current repair, or answer an analytics period question. Clear new topics discard old draft fields and entity focus. Completed creations cannot be replayed as new records through a follow-up. Implicit updates use the backend-confirmed ID with the authenticated master scope, and references from a previous calendar day ask for customer/device confirmation. Explicitly named repairs still use database matching. Dates are resolved using the current date in Asia/Tashkent; stored agreed dates are calendar facts. Analytics totals always query Turso.
+Analytics queries all matching rows in Turso. Date filters use **creation dates in Asia/Tashkent**. Counts and sums are calculated by SQL, not invented from conversation context or the dashboard's 100-row page. Agreed price totals disclose missing prices and are not payments or profit.
 
-State and command results commit atomically with repair writes. Request IDs prevent duplicate mutations or state advancement on webhook retries; optimistic revisions reject concurrent generations against superseded state. The old `conversation_memory` table is retained for compatibility with older deployments but is no longer read or written by this version. The new state starts fresh on the first message after this change. Command-result audit records are retained separately.
+Payments, debt, parts costs, profit, completion-speed reports, voice and master reassignment are not implemented.
 
-Verified with seven tests covering persistence, isolation, resets, long gaps, bounded state, completed creation protection, exact repair targeting, stale references and concurrent messages. Also verified a live Gemini five-turn intake/update/report flow against a temporary local database; those test repairs were not written to production.
+## Reliability and audit
 
+Repair writes, their audit events, updated state and cached command results commit in one transaction. Request IDs prevent repeated mutations on retries. Optimistic revisions reject generations against superseded context.
 
-The model also receives server-calculated timing: previous and current message timestamps, inactivity in seconds, and whether the pause crossed a calendar day in Asia/Tashkent. State records the gap preceding its last exchange. Timing is a relevance cue rather than an automatic expiry: a clear answer may continue a pending task after a pause, while unrelated messages start new topics and ambiguous references ask for clarification. Retries replay cached results without changing timestamps or advancing state.
+Telegram deliveries are persisted with status, attempts, reply payload and Telegram message ID. A per-conversation lease serializes processing; expired leases can be recovered after a crash. The server explicitly calls Telegram's `sendMessage` and acknowledges the webhook after successful delivery. Failed sends retry the saved reply without rerunning the command. Callback queries are acknowledged separately to stop the button spinner.
+
+This is **retry-driven synchronous processing**, not an independent background worker. Recovery depends on Telegram retrying failed updates. A permanently failing earlier message can delay later messages in that chat. Telegram cannot guarantee exactly-once message delivery if it accepts a send but the network response is lost; a duplicate notification is possible, while request IDs protect repair mutations.
+
+`repair_events` records the authenticated actor, request ID and before/after record snapshots for both AI and structured API writes from this version onward. Historical changes before this version are not backfilled. `GET /api/repairs/{id}/events` exposes up to 100 events to authenticated readers for their master's records.
+
+The old `conversation_memory` table is retained for compatibility with older deployments but is no longer used. Conversation state and command-result caches persist separately.
+
+## Web dashboard and structured API
+
+Open `/` and log in with `DASHBOARD_KEY`. The key stays only in browser memory and grants read-only access for `MASTER_ID`. Search by customer/device, filter status, refresh, and page through records. Static assets are public; customer data requires authentication.
+
+A Custom GPT can import `openapi.json` (replace its placeholder server URL) and use `GPT-INSTRUCTIONS.md`. Configure Action Bearer authentication with `ACTION_API_KEY`, never the Turso token. This chat does not automatically gain a GPT Action. Custom GPT access depends on your ChatGPT plan.
+
+Other clients can `POST /api/commands` with the Action key and JSON `{ "request_id": "a UUID", "text": "a full command" }`. This API is stateless; Telegram owns the interactive task/button flow. The direct structured CRUD API remains available for trusted clients and has its own Action confirmation settings. Do not share the Action credential with other masters.
+
+`/health` checks basic configuration, not live database/model connectivity. Missing variables return a setup response instead of crashing the static dashboard. Environment changes require redeployment.
+
+## Verification
+
+`npm test` uses temporary SQLite databases and mocked model/Telegram calls to exercise auth, isolation, transactional audit, retries, concurrent state updates, task phases, button confirmation/edit/cancel, stale proposals, delivery failures and lease recovery.
+
+`npm run eval` checks 50 fictional Uzbek examples against live Gemini without reading or writing shop records. It covers number phrases, models, statuses, reports, follow-ups, unsupported payments and unrelated chatter. It consumes Google API quota. Use `npm run eval -- --limit 8` for a smaller sample; `EVAL_INTERVAL_MS` controls spacing (default 4 seconds). A passing sample is not a measured production accuracy guarantee.
+
+Latest validation: 17 automated tests passed; all 50 fictional Uzbek model-evaluation cases passed in one run. A separate live Gemini test passed intake → price proposal → edit → revised proposal → confirmation using a temporary database. These checks do not measure real-world shop accuracy or guarantee exactly-once Telegram notifications.

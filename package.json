@@ -6,7 +6,8 @@
     "start": "node src/server.js",
     "test": "node --test",
     "db:setup": "node scripts/setup.js",
-    "telegram:setup": "node scripts/telegram-webhook.js"
+    "telegram:setup": "node scripts/telegram-webhook.js",
+    "eval": "node scripts/eval.js"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.121",

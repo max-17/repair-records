@@ -1,4 +1,5 @@
 import express from 'express';
+import {auditRepair,writeTransaction} from './audit.js';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -54,7 +55,11 @@ export function createApp({db, apiKey, masterId, dashboardKey, runCommand, teleg
     const parsed=creation.safeParse(req.body);
     if(!parsed.success) return res.status(400).json({error:parsed.error.issues});
     const v=parsed.data;
-    const result=await db.execute({sql:`INSERT INTO repair_jobs (id,master_id,request_id,customer,device,work,price_uzs,due_date,status) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(master_id,request_id) DO NOTHING RETURNING *`,args:[randomUUID(),masterId,v.request_id,v.customer,v.device,v.work,v.price_uzs??null,v.due_date??null,v.status??'received']});
+    const result=await writeTransaction(db,async tx=>{
+    const inserted=await tx.execute({sql:`INSERT INTO repair_jobs (id,master_id,request_id,customer,device,work,price_uzs,due_date,status) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(master_id,request_id) DO NOTHING RETURNING *`,args:[randomUUID(),masterId,v.request_id,v.customer,v.device,v.work,v.price_uzs??null,v.due_date??null,v.status??'received']});
+      if(inserted.rows.length)await auditRepair(tx,{masterId,requestId:v.request_id,actorId:`api:${masterId}`,after:inserted.rows[0]});
+      return inserted;
+    });
     if(result.rows.length) return res.status(201).json(result.rows[0]);
     const prior=await db.execute({sql:'SELECT * FROM repair_jobs WHERE master_id=? AND request_id=?',args:[masterId,v.request_id]});
     const row=prior.rows[0];
@@ -72,9 +77,21 @@ export function createApp({db, apiKey, masterId, dashboardKey, runCommand, teleg
     const parsed=patch.safeParse(req.body);
     if(!z.uuid().safeParse(req.params.id).success || !parsed.success) return res.status(400).json({error:'Invalid ID or update'});
     const entries=Object.entries(parsed.data);
-    const result=await db.execute({sql:`UPDATE repair_jobs SET ${entries.map(([k])=>`${k}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND master_id=? RETURNING *`,args:[...entries.map(([,v])=>v),req.params.id,masterId]});
+    const result=await writeTransaction(db,async tx=>{
+      const prior=await tx.execute({sql:'SELECT * FROM repair_jobs WHERE id=? AND master_id=?',args:[req.params.id,masterId]});
+    const changed=await tx.execute({sql:`UPDATE repair_jobs SET ${entries.map(([k])=>`${k}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND master_id=? RETURNING *`,args:[...entries.map(([,v])=>v),req.params.id,masterId]});
+      if(changed.rows.length)await auditRepair(tx,{masterId,requestId:randomUUID(),actorId:`api:${masterId}`,before:prior.rows[0],after:changed.rows[0]});
+      return changed;
+    });
     if(!result.rows.length) return res.status(404).json({error:'Repair not found'});
     res.json(result.rows[0]);
+  });
+  app.get('/api/repairs/:id/events',async(req,res)=>{
+    if(!z.uuid().safeParse(req.params.id).success)return res.status(400).json({error:'Invalid repair ID'});
+    const repair=await db.execute({sql:'SELECT id FROM repair_jobs WHERE id=? AND master_id=?',args:[req.params.id,masterId]});
+    if(!repair.rows.length)return res.status(404).json({error:'Repair not found'});
+    const events=await db.execute({sql:'SELECT * FROM repair_events WHERE repair_id=? AND master_id=? ORDER BY created_at DESC,id LIMIT 100',args:[req.params.id,masterId]});
+    res.json({events:events.rows.map(e=>({...e,before:e.before_json?JSON.parse(e.before_json):null,after:JSON.parse(e.after_json),before_json:undefined,after_json:undefined}))});
   });
   app.use((err,_req,res,_next)=>res.status(err.status===400?400:500).json({error:err.status===400?'Invalid JSON':'Request failed'}));
   return app;

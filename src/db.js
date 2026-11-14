@@ -5,6 +5,23 @@ export function database(env = process.env) {
   return createClient({url: env.DATABASE_URL, authToken: env.DATABASE_TOKEN || env.database_token});
 }
 export async function setup(db) {
+  await db.execute(`CREATE TABLE IF NOT EXISTS repair_events (
+    id TEXT PRIMARY KEY, master_id TEXT NOT NULL, repair_id TEXT NOT NULL,
+    request_id TEXT NOT NULL, actor_id TEXT NOT NULL, event_type TEXT NOT NULL,
+    before_json TEXT, after_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  )`);
+  await db.execute('CREATE INDEX IF NOT EXISTS repair_events_lookup ON repair_events(master_id,repair_id,created_at)');
+  await db.execute(`CREATE TABLE IF NOT EXISTS telegram_deliveries (
+    update_id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL,
+    input_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+    lease_until INTEGER NOT NULL DEFAULT 0, reply_text TEXT, telegram_message_id INTEGER,
+    last_error_code TEXT, created_at INTEGER NOT NULL, sent_at INTEGER
+  )`);
+  await db.execute('CREATE INDEX IF NOT EXISTS telegram_delivery_order ON telegram_deliveries(conversation_id,status,created_at,update_id)');
+  await db.execute(`CREATE TABLE IF NOT EXISTS telegram_locks (
+    conversation_id TEXT PRIMARY KEY, update_id INTEGER NOT NULL, lease_until INTEGER NOT NULL, lease_token TEXT NOT NULL
+  )`);
   await db.execute(`CREATE TABLE IF NOT EXISTS conversation_state (
     master_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
     state_json TEXT NOT NULL, revision INTEGER NOT NULL,

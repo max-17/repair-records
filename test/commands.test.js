@@ -71,7 +71,7 @@ test('structured state survives restarts and long gaps, stays scoped and resets 
   for(let i=0;i<25;i++)await send('still reporting',`state-${i}`);
   assert.equal(observed.pending.action,'analytics');assert.ok(!('history' in observed));assert.ok(JSON.stringify(observed).length<2000);
   const before=calls;assert.equal((await send('/new','reset')).kind,'reset');assert.equal(calls,before);
-  await send('after reset','after');assert.deepEqual(observed,{});
+  await send('after reset','after');assert.deepEqual(observed,{phase:'idle'});
   await send('/new','reset');await send('still here','final');assert.equal(observed.pending.action,'analytics');
  }finally{db.close();await rm(dir,{recursive:true,force:true});}
 });
@@ -135,4 +135,12 @@ test('one-day report follow-up uses the current Tashkent date after a pause',()=
  const resolved=resolveReportPeriod(plan,'1 kun',state,timing);assert.equal(resolved.start_date,'2026-11-15');assert.equal(resolved.end_date,'2026-11-15');
  assert.equal(resolveReportPeriod(plan,'1 kun oldin',state,timing).start_date,'2026-11-14');
  assert.equal(resolveReportPeriod(plan,'1 kun',{},timing).start_date,'2026-11-14');
+});
+
+test('Telegram callback buttons are authenticated and routed as token-bound commands',async()=>{
+ const token='11111111-1111-4111-8111-111111111111';let received;let presentation;let calls=0;
+ const handler=telegramWebhook({env:{TELEGRAM_WEBHOOK_SECRET:'test',TELEGRAM_MASTERS:'{"123":"owner"}'},runCommand:async input=>{calls++;received=input;return {kind:'updated',reply:'Updated'};},deliver:async input=>{presentation=await input.process();}});
+ const server=createApp({telegramHandler:handler}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ const post=sender=>fetch(`http://127.0.0.1:${server.address().port}/api/telegram/webhook`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':'test'},body:JSON.stringify({update_id:456,callback_query:{id:'callback',from:{id:sender},data:`confirm:${token}`,message:{chat:{id:123,type:'private'},from:{id:999,is_bot:true}}}})});
+ try{assert.equal((await post(789)).status,200);assert.equal(calls,0);assert.equal((await post(123)).status,200);assert.equal(received.text,`/confirm ${token}`);assert.equal(received.masterId,'owner');assert.equal(presentation.text,'Updated');}finally{await new Promise(r=>server.close(r));}
 });

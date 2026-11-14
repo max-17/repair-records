@@ -6,7 +6,7 @@ try {
  if(!Object.keys(masters).length||Object.values(masters).some(v=>typeof v!=='string'||!v.trim()))throw new Error('Configure TELEGRAM_MASTERS with Telegram user IDs mapped to master IDs');
  const base=new URL(env.PUBLIC_BASE_URL);
  if(base.protocol!=='https:')throw new Error('PUBLIC_BASE_URL must use HTTPS');
- const response=await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:new URL('/api/telegram/webhook',base).href,secret_token:env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:['message']})});
+ const response=await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:new URL('/api/telegram/webhook',base).href,secret_token:env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:['message','callback_query']})});
  const body=await response.json();
  if(!response.ok||!body.ok)throw new Error('Telegram rejected webhook setup. Verify the bot token and HTTPS deployment.');
  console.log('Telegram webhook registered.');
