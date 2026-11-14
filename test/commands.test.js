@@ -5,7 +5,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {setup} from '../src/db.js';
-import {commandService,todayInTashkent,boundedHistory} from '../src/commands.js';
+import {commandService,todayInTashkent} from '../src/commands.js';
 import {telegramWebhook} from '../src/telegram.js';
 import {createApp} from '../src/app.js';
 const blank={action:'clarify',customer:null,device:null,work:null,price_uzs:null,due_date:null,status:null,start_date:null,end_date:null,question:null};
@@ -53,27 +53,25 @@ test('Telegram verifies secret and sender before invoking AI and assigns master 
  }finally{await new Promise(r=>server.close(r));}
 });
 
-test('memory survives service restart, stays scoped, expires, resets, and does not duplicate retries',async()=>{
- const dir=await mkdtemp(join(tmpdir(),'memory-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
- let time=Date.parse('2026-11-14T10:00:00Z');let observed=[];let calls=0;
- const parse=async(text,{history})=>{calls++;observed=history;return {...blank,action:'clarify',question:'Qaysi davr?'};};
+test('structured state survives restarts and long gaps, stays scoped and resets idempotently',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'state-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
+ let time=Date.parse('2026-11-14T10:00:00Z');let observed;let calls=0;
+ const parse=async(text,{state})=>{calls++;observed=state;return {...blank,question:'Qaysi davr?',memory:{topic:'continue',pending_action:'analytics',uses_active_repair:false}};};
  let run=commandService({db,parse,now:()=>time});
- const send=(text,id,session='chat-a',master='owner')=>run({text,requestId:id,conversationId:session,masterId:master});
+ const send=(text,id,conversationId='a',masterId='owner')=>run({text,requestId:id,conversationId,masterId});
  try{
-  await send('Menga hisobot ber','1');assert.equal(observed.length,0);
-  run=commandService({db,parse,now:()=>time});
-  await send('1 kun','2');assert.equal(observed.length,1);assert.equal(observed[0].user,'Menga hisobot ber');assert.equal(observed[0].assistant,'Qaysi davr?');
+  await send('Menga hisobot ber','1');assert.deepEqual(observed,{});
+  run=commandService({db,parse,now:()=>time});time+=7*24*60*60*1000;
+  await send('1 kun','2');assert.equal(observed.pending.action,'analytics');assert.equal(observed.pending.question,'Qaysi davr?');
   const count=calls;await send('1 kun','2');assert.equal(calls,count);
-  await send('new session','3','chat-b');assert.equal(observed.length,0);
-  await send('other master','4','chat-a','other');assert.equal(observed.length,0);
-  await assert.rejects(send('1 kun','2','chat-b'),/REQUEST_CONFLICT/);
-  time+=31*60*1000;await send('old context?','5');assert.equal(observed.length,0);
-  for(let i=0;i<12;i++)await send('again',`history-${i}`);assert.equal(observed.length,10);
-  const beforeReset=calls;assert.equal((await send('/new','9')).kind,'reset');assert.equal(calls,beforeReset);
-  await send('after reset','10');assert.equal(observed.length,0);
-  await send('/new','9'); // a retried reset must not erase newer context
-  await send('still here','11');assert.equal(observed.length,1);
-  const rows=await db.execute('SELECT count(*) AS total FROM repair_jobs');assert.equal(rows.rows[0].total,0);
+  await send('other chat','3','b');assert.deepEqual(observed,{});
+  await send('other master','4','a','other');assert.deepEqual(observed,{});
+  await assert.rejects(send('1 kun','2','b'),/REQUEST_CONFLICT/);
+  for(let i=0;i<25;i++)await send('still reporting',`state-${i}`);
+  assert.equal(observed.pending.action,'analytics');assert.ok(!('history' in observed));assert.ok(JSON.stringify(observed).length<2000);
+  const before=calls;assert.equal((await send('/new','reset')).kind,'reset');assert.equal(calls,before);
+  await send('after reset','after');assert.deepEqual(observed,{});
+  await send('/new','reset');await send('still here','final');assert.equal(observed.pending.action,'analytics');
  }finally{db.close();await rm(dir,{recursive:true,force:true});}
 });
 
@@ -91,9 +89,32 @@ test('concurrent turns fail safely when conversation changed during generation',
  }finally{db.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('history retains ten exchanges and drops oldest whole exchanges to respect context budget',()=>{
- const small=Array.from({length:15},(_,i)=>({user:String(i),assistant:'reply'}));
- const ten=boundedHistory(small);assert.equal(ten.length,10);assert.equal(ten[0].user,'5');
- const large=Array.from({length:10},(_,i)=>({user:String(i)+'x'.repeat(3000),assistant:'y'.repeat(1600)}));
- const bounded=boundedHistory(large);assert.ok(JSON.stringify(bounded).length<=16000);assert.equal(bounded.at(-1).user,large.at(-1).user);assert.ok(bounded.length<10);
+
+test('draft fields are completed across messages; confirmed IDs prevent wrong updates and stale references require clarification',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'state-repair-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
+ let time=Date.parse('2026-11-14T10:00:00Z');let plan;
+ const run=commandService({db,parse:async()=>plan,now:()=>time});
+ const send=(text,id)=>run({text,requestId:id,masterId:'owner',conversationId:'a'});
+ const metadata=(topic,pending_action=null,uses_active_repair=false)=>({topic,pending_action,uses_active_repair});
+ try{
+  plan={...blank,customer:'Bekzod',device:'iPhone 14 Pro',question:'Qanday ta’mirlash?',memory:metadata('new','create')};
+  await send('Bekzoddan iPhone 14 Pro oldim','draft');
+  plan={...blank,action:'create',work:'Ekran almashtirish',memory:metadata('continue')};
+  const created=await send('Ekran almashtirish','create');assert.equal(created.kind,'created');assert.equal(created.repair.customer,'Bekzod');
+  const id=created.repair.id;
+  // A completed creation must never be replayed as a new creation from context.
+  plan={...blank,action:'create',customer:'Bekzod',device:'iPhone 14 Pro',work:'Screen',memory:metadata('continue')};
+  assert.equal((await send('rahmat','thanks')).kind,'clarify');
+  // A second matching repair must not steal a reference to the confirmed ID.
+  await db.execute({sql:'INSERT INTO repair_jobs(id,master_id,request_id,customer,device,work) VALUES(?,?,?,?,?,?)',args:['other-repair','owner','other-repair','Bekzod','iPhone 14 Pro','Battery']});
+  plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'ready',memory:metadata('continue',null,true)};
+  const updated=await send('Tayyor bo‘ldi','ready');assert.equal(updated.repair.id,id);assert.equal(updated.repair.status,'ready');
+  time+=24*60*60*1000;plan={...plan,status:'delivered'};
+  assert.equal((await send('Topshirdim','stale')).kind,'clarify');
+  const stored=await db.execute({sql:'SELECT status FROM repair_jobs WHERE id=?',args:[id]});assert.equal(stored.rows[0].status,'ready');
+  // New topics clear draft state and old entity focus.
+  plan={...blank,action:'analytics',memory:metadata('new')};await send('Hisobot','report');
+  const memory=await db.execute("SELECT state_json FROM conversation_state WHERE master_id='owner' AND conversation_id='a'");
+  const state=JSON.parse(memory.rows[0].state_json);assert.ok(!state.active_repair);assert.ok(!state.pending);assert.ok(state.last_report);
+ }finally{db.close();await rm(dir,{recursive:true,force:true});}
 });
