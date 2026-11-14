@@ -1,1 +1,19 @@
-{"name":"repair-records","private":true,"type":"module","scripts":{"start":"node src/server.js","test":"node --test","db:setup":"node scripts/setup.js"},"dependencies":{"@libsql/client":"^0.15.15","dotenv":"^17.2.3","express":"^5.1.0","zod":"^4.1.12"}}
+{
+  "name": "repair-records",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "db:setup": "node scripts/setup.js",
+    "telegram:setup": "node scripts/telegram-webhook.js"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^4.0.121",
+    "@libsql/client": "^0.15.15",
+    "ai": "^7.0.173",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "zod": "^4.1.12"
+  }
+}

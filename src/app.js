@@ -9,7 +9,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
 export const fields = z.object({customer:text,device:text,work:text,price_uzs:z.number().int().min(0).max(1e12).nullable().optional(),due_date:date.nullable().optional(),status:z.enum(['received','in_progress','ready','delivered','cancelled']).optional()});
 const creation = fields.extend({request_id:z.uuid()}).strict();
 const patch = fields.partial().strict().refine(v=>Object.keys(v).length>0,'Provide a field to update');
-export function createApp({db, apiKey, masterId, dashboardKey} = {}) {
+export function createApp({db, apiKey, masterId, dashboardKey, runCommand, telegramHandler} = {}) {
   const app=express();
   app.disable('x-powered-by');
   const configured=Boolean(db && apiKey && masterId);
@@ -21,6 +21,7 @@ export function createApp({db, apiKey, masterId, dashboardKey} = {}) {
     next();
   });
   app.use(express.static(fileURLToPath(new URL('../public/',import.meta.url))));
+  if(telegramHandler) app.post('/api/telegram/webhook',express.json({limit:'16kb'}),telegramHandler);
   app.use('/api', (req,res,next)=> {
     res.setHeader('Cache-Control','no-store');
     if(!configured) return res.status(503).json({error:'Server setup incomplete. Configure DATABASE_URL, DATABASE_TOKEN, ACTION_API_KEY, MASTER_ID, and DASHBOARD_KEY in your hosting settings, then redeploy.'});
@@ -37,6 +38,18 @@ export function createApp({db, apiKey, masterId, dashboardKey} = {}) {
     return res.status(401).json({error:'Unauthorized'});
   });
   app.use(express.json({limit:'16kb'}));
+  app.post('/api/commands',async(req,res)=>{
+    if(!runCommand)return res.status(503).json({error:'Set GOOGLE_GENERATIVE_AI_API_KEY to enable Gemini.'});
+    const parsed=z.object({text:z.string().trim().min(1).max(3000),request_id:z.uuid()}).strict().safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:'Provide text and a UUID request_id.'});
+    try {
+      const result=await runCommand({text:parsed.data.text,requestId:parsed.data.request_id,masterId});
+      return res.json(result);
+    }catch(error){
+      console.error('AI command failed',{name:error.name,code:error.code||error.statusCode||'command_failed'});
+      return res.status(error.message==='REQUEST_CONFLICT'?409:503).json({error:'Command not confirmed. Retry with the same request_id; do not create a new one.'});
+    }
+  });
   app.post('/api/repairs', async(req,res)=> {
     const parsed=creation.safeParse(req.body);
     if(!parsed.success) return res.status(400).json({error:parsed.error.issues});
