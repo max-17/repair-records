@@ -15,6 +15,7 @@ async function load(){
   const response=await fetch(`/api/repairs?${query}`,{headers:{Authorization:`Bearer ${key}`},cache:'no-store'});
   if(current!==generation)return;
   if(response.status===401){logout();throw new Error('Kirish kaliti noto‘g‘ri.');}
+  if(response.status===503)throw new Error('Server sozlanmagan. Vercel sozlamalarida DATABASE_URL, DATABASE_TOKEN, ACTION_API_KEY, MASTER_ID va DASHBOARD_KEY ni kiriting va qayta deploy qiling.');
   if(!response.ok)throw new Error('Ma’lumotlarni yuklab bo‘lmadi. Qayta urinib ko‘ring.');
   const data=await response.json();if(current!==generation)return;
   $('login').hidden=true;$('dashboard').hidden=false;$('key').value='';

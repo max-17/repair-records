@@ -41,3 +41,17 @@ test('authenticated records persist, retries are safe, invalid data and cross-ma
   assert.equal((await (await request('/api/repairs')).json()).repairs.length,0);
  } finally {await new Promise(r=>server.close(r));db.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('missing deployment configuration serves the dashboard and fails closed for data',async()=>{
+ const {createRuntimeApp}=await import('../src/runtime.js');
+ const server=createRuntimeApp({}).listen(0,'127.0.0.1');
+ await new Promise(r=>server.once('listening',r));
+ const base=`http://127.0.0.1:${server.address().port}`;
+ try {
+  const home=await fetch(base+'/');assert.equal(home.status,200);assert.match(await home.text(),/Ishlar ro‘yxati/);
+  assert.equal((await fetch(base+'/dashboard.js')).status,200);
+  assert.equal((await fetch(base+'/health')).status,503);
+  const result=await fetch(base+'/api/repairs');assert.equal(result.status,503);
+  assert.match((await result.json()).error,/Server setup incomplete/);
+ } finally {await new Promise(r=>server.close(r));}
+});

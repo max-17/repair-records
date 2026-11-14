@@ -33,3 +33,9 @@ Open `/` on the running API host. The Uzbek dashboard reads the same Turso repai
 Use `DASHBOARD_KEY` from your private `.env` to sign in. Set that variable on the deployed host too. The key grants read-only access for the configured `MASTER_ID`; it is separate from the GPT Action write key. It stays only in browser memory and is cleared on sign-out or reload. Use HTTPS when hosted. Do not use your Turso token as a dashboard login. The current database is empty, so an empty list is expected until a repair is saved. The login page and static assets are public; customer data requires a valid access key.
 
 Verified: local API/static-asset tests, rejected unauthenticated reads, rejected writes with the dashboard key, pagination, and an authenticated live read from Turso through the dashboard API. Browser visual verification and public deployment have not been completed.
+
+## Vercel startup errors
+
+`.env` is intentionally excluded from GitHub. In Vercel → Project → Settings → Environment Variables, set `DATABASE_URL`, `DATABASE_TOKEN`, `ACTION_API_KEY`, `MASTER_ID`, and `DASHBOARD_KEY` using the values in your local `.env`. Select Production (and Preview if needed), then redeploy: existing deployments do not pick up new environment variables. Never commit `.env` to fix missing deployment variables.
+
+The dashboard now loads even when database or Action configuration is absent. Its API returns a setup message with HTTP 503 instead of throwing during function initialization. `/health` returns 503 until the database client, Action key, and master are configured; it does not check live database connectivity. Invalid tokens and network errors still require checking runtime logs. If the function still crashes, inspect Vercel runtime logs for the actual error.

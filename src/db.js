@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { createClient } from '@libsql/client';
-export function database() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
-  return createClient({url: process.env.DATABASE_URL, authToken: process.env.DATABASE_TOKEN || process.env.database_token});
+export function database(env = process.env) {
+  if (!env.DATABASE_URL) throw new Error('DATABASE_URL is required');
+  return createClient({url: env.DATABASE_URL, authToken: env.DATABASE_TOKEN || env.database_token});
 }
 export async function setup(db) {
   await db.execute(`CREATE TABLE IF NOT EXISTS repair_jobs (

@@ -9,11 +9,11 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
 export const fields = z.object({customer:text,device:text,work:text,price_uzs:z.number().int().min(0).max(1e12).nullable().optional(),due_date:date.nullable().optional(),status:z.enum(['received','in_progress','ready','delivered','cancelled']).optional()});
 const creation = fields.extend({request_id:z.uuid()}).strict();
 const patch = fields.partial().strict().refine(v=>Object.keys(v).length>0,'Provide a field to update');
-export function createApp({db, apiKey, masterId, dashboardKey}) {
-  if (!apiKey || !masterId) throw new Error('ACTION_API_KEY and MASTER_ID are required');
+export function createApp({db, apiKey, masterId, dashboardKey} = {}) {
   const app=express();
   app.disable('x-powered-by');
-  app.get('/health',(_req,res)=>res.json({ok:true}));
+  const configured=Boolean(db && apiKey && masterId);
+  app.get('/health',(_req,res)=>res.status(configured?200:503).json({ok:configured}));
   app.use((_req,res,next)=> {
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('Referrer-Policy','no-referrer');
@@ -23,6 +23,7 @@ export function createApp({db, apiKey, masterId, dashboardKey}) {
   app.use(express.static(fileURLToPath(new URL('../public/',import.meta.url))));
   app.use('/api', (req,res,next)=> {
     res.setHeader('Cache-Control','no-store');
+    if(!configured) return res.status(503).json({error:'Server setup incomplete. Configure DATABASE_URL, DATABASE_TOKEN, ACTION_API_KEY, MASTER_ID, and DASHBOARD_KEY in your hosting settings, then redeploy.'});
     const given=Buffer.from(req.headers.authorization || '');
     const matches=key=> {
       const expected=Buffer.from(`Bearer ${key}`);
