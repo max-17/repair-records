@@ -52,3 +52,41 @@ test('Telegram verifies secret and sender before invoking AI and assigns master 
   const reply=await (await post(123)).json();assert.equal(reply.method,'sendMessage');assert.equal(reply.text,'Saved');assert.equal(received.masterId,'aziz');assert.equal(received.requestId,'telegram:99');
  }finally{await new Promise(r=>server.close(r));}
 });
+
+test('memory survives service restart, stays scoped, expires, resets, and does not duplicate retries',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'memory-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
+ let time=Date.parse('2026-11-14T10:00:00Z');let observed=[];let calls=0;
+ const parse=async(text,{history})=>{calls++;observed=history;return {...blank,action:'clarify',question:'Qaysi davr?'};};
+ let run=commandService({db,parse,now:()=>time});
+ const send=(text,id,session='chat-a',master='owner')=>run({text,requestId:id,conversationId:session,masterId:master});
+ try{
+  await send('Menga hisobot ber','1');assert.equal(observed.length,0);
+  run=commandService({db,parse,now:()=>time});
+  await send('1 kun','2');assert.equal(observed.length,1);assert.equal(observed[0].user,'Menga hisobot ber');assert.equal(observed[0].assistant,'Qaysi davr?');
+  const count=calls;await send('1 kun','2');assert.equal(calls,count);
+  await send('new session','3','chat-b');assert.equal(observed.length,0);
+  await send('other master','4','chat-a','other');assert.equal(observed.length,0);
+  await assert.rejects(send('1 kun','2','chat-b'),/REQUEST_CONFLICT/);
+  time+=31*60*1000;await send('old context?','5');assert.equal(observed.length,0);
+  await send('again','6');await send('again','7');await send('again','8');assert.equal(observed.length,3);
+  const beforeReset=calls;assert.equal((await send('/new','9')).kind,'reset');assert.equal(calls,beforeReset);
+  await send('after reset','10');assert.equal(observed.length,0);
+  await send('/new','9'); // a retried reset must not erase newer context
+  await send('still here','11');assert.equal(observed.length,1);
+  const rows=await db.execute('SELECT count(*) AS total FROM repair_jobs');assert.equal(rows.rows[0].total,0);
+ }finally{db.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('concurrent turns fail safely when conversation changed during generation',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'memory-race-'));const db=createClient({url:`file:${join(dir,'test.db')}`});await setup(db);
+ let release,started;const ready=new Promise(r=>{started=r;});const pause=new Promise(r=>{release=r;});
+ const parse=async text=>{if(text==='slow'){started();await pause;}return {...blank,question:'Qaysi davr?'};};
+ const run=commandService({db,parse});
+ const input=(text,id)=>({text,requestId:id,masterId:'owner',conversationId:'one'});
+ try{
+  const slow=run(input('slow','slow'));await ready;
+  await run(input('fast','fast'));release();
+  await assert.rejects(slow,/CONVERSATION_CHANGED/);
+  const cache=await db.execute("SELECT count(*) AS total FROM command_requests WHERE request_id='slow'");assert.equal(cache.rows[0].total,0);
+ }finally{db.close();await rm(dir,{recursive:true,force:true});}
+});

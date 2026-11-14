@@ -14,10 +14,10 @@ export function telegramWebhook({env,runCommand}) {
   if(typeof masterId!=='string'||!masterId.trim())return res.json({ok:true});
   const reply=text=>res.json({method:'sendMessage',chat_id:msg.chat.id,text:text.slice(0,4000)});
   if(!msg.text)return reply('Hozircha faqat matn yuboring. Ovozli xabarlar hali qo‘llanmaydi.');
-  if(msg.text==='/start')return reply('Salom! Buyurtmani to‘liq yozing: Bekzod akadan iPhone 14 Pro oldim, ekran almashtirish, 1 million so‘m, ertaga tayyor.\nHolat: Bekzod aka iPhone 14 Pro tayyor.\nHisobot: Bugun nechta buyurtma oldim?\nHar xabarda bitta to‘liq buyruq yozing.');
   if(msg.text.length>3000)return reply('Xabar juda uzun. 3000 belgigacha yozing.');
   try {
-   const result=await runCommand({text:msg.text,requestId:`telegram:${update.update_id}`,masterId});
+   const result=await runCommand({text:['/start','/new'].includes(msg.text)?'/new':msg.text,requestId:`telegram:${update.update_id}`,masterId,conversationId:`telegram:${msg.chat.id}:${msg.from.id}`});
+   if(msg.text==='/start')return reply('Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Masalan: «Menga hisobot ber» → «1 kun».\nYangi suhbat uchun /new. Ovozli xabarlar hali qo‘llanmaydi.');
    return reply(result.reply);
   }catch(error){
    console.error('Telegram command failed',{name:error.name,code:error.code||error.statusCode||'command_failed'});
