@@ -47,7 +47,7 @@ Gemini receives previous/current timestamps, inactivity duration, Tashkent local
 
 Analytics queries all matching rows in Turso. Date filters use **creation dates in Asia/Tashkent**. Counts and sums are calculated by SQL, not invented from conversation context or the dashboard's 100-row page. Agreed price totals disclose missing prices and are not payments or profit.
 
-Payments, debt, parts costs, profit, completion-speed reports, voice and master reassignment are not implemented.
+Payments, debt, parts costs, profit, completion-speed reports and master reassignment are not implemented. Telegram voice notes are supported through the separate Whisper transcript-review flow below.
 
 ## Reliability and audit
 
@@ -78,3 +78,21 @@ Other clients can `POST /api/commands` with the Action key and JSON `{ "request_
 `npm run eval` checks 50 fictional Uzbek examples against live Gemini without reading or writing shop records. It covers number phrases, models, statuses, reports, follow-ups, unsupported payments and unrelated chatter. It consumes Google API quota. Use `npm run eval -- --limit 8` for a smaller sample; `EVAL_INTERVAL_MS` controls spacing (default 4 seconds). A passing sample is not a measured production accuracy guarantee.
 
 Latest validation: 17 automated tests passed; all 50 fictional Uzbek model-evaluation cases passed in one run. A separate live Gemini test passed intake → price proposal → edit → revised proposal → confirmation using a temporary database. These checks do not measure real-world shop accuracy or guarantee exactly-once Telegram notifications.
+
+
+## Uzbek voice notes with Groq Whisper
+
+Set `GROQ_API_KEY` in your private `.env` and Vercel Production environment, then redeploy. Optional settings: `GROQ_WHISPER_MODEL=whisper-large-v3` (default; accuracy-oriented) or `whisper-large-v3-turbo` (speed-oriented), and `GROQ_SPEECH_LANGUAGE=uz` (default). Set language to `auto` to try language detection for mixed-language recordings. Provider quotas/billing apply separately from Gemini.
+
+An allowlisted user sends a Telegram **voice note** of up to 120 seconds and 10 MB. The server fetches the file from Telegram and uploads its bytes to Groq; it never gives Groq a Telegram download URL containing the bot token. No audio bytes are stored in Turso or on disk. Groq receives the audio for transcription; transcripts and review results are persisted for retries.
+
+The bot shows the transcript with **✅ Davom etish**, **✏️ Matnni tuzatish**, and **❌ Bekor qilish**. Nothing reaches the repair-command engine until the transcript is approved. Edit accepts a full corrected text and shows another preview with a new token. Accepted text goes through Gemini and the existing repair confirmation/audit flow. New messages invalidate old unused transcript buttons; transcript approvals expire after 15 minutes. /cancel cancels a pending transcript; /new also resets the conversation. Missing Groq configuration or transcription errors return a helpful message while text commands remain available.
+
+To test a real local recording without writing repair records:
+
+```sh
+npm run speech:try -- /absolute/path/voice.ogg
+npm run speech:try -- /absolute/path/voice.ogg --compare
+```
+
+The second command calls both Whisper models and prints transcripts and elapsed times. Evaluate names, phone models and amounts using actual shop recordings. Automated tests mock recognition and verify language settings, file limits, authentication-before-processing, transcript review/edit/cancel, isolation and duplicate protection. Live Uzbek recognition accuracy still requires a valid Groq key and real voice samples.

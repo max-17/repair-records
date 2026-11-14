@@ -7,10 +7,12 @@
     "test": "node --test",
     "db:setup": "node scripts/setup.js",
     "telegram:setup": "node scripts/telegram-webhook.js",
-    "eval": "node scripts/eval.js"
+    "eval": "node scripts/eval.js",
+    "speech:try": "node scripts/speech-try.js"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.121",
+    "@ai-sdk/groq": "^4.0.84",
     "@libsql/client": "^0.15.15",
     "ai": "^7.0.173",
     "dotenv": "^17.2.3",

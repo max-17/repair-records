@@ -5,6 +5,11 @@ export function database(env = process.env) {
   return createClient({url: env.DATABASE_URL, authToken: env.DATABASE_TOKEN || env.database_token});
 }
 export async function setup(db) {
+  await db.execute(`CREATE TABLE IF NOT EXISTS voice_drafts (
+    master_id TEXT NOT NULL, conversation_id TEXT NOT NULL, token TEXT NOT NULL,
+    transcript TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
+    PRIMARY KEY(master_id,conversation_id)
+  )`);
   await db.execute(`CREATE TABLE IF NOT EXISTS repair_events (
     id TEXT PRIMARY KEY, master_id TEXT NOT NULL, repair_id TEXT NOT NULL,
     request_id TEXT NOT NULL, actor_id TEXT NOT NULL, event_type TEXT NOT NULL,

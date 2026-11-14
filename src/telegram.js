@@ -1,6 +1,6 @@
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
-export function telegramWebhook({env,runCommand,deliver,answerCallback}) {
+export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice}) {
  return async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   const secret=env.TELEGRAM_WEBHOOK_SECRET;
@@ -10,7 +10,7 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback}) {
   const update=req.body;const callback=update?.callback_query;
   let msg=update?.message;
   if(callback){
-   const match=/^(confirm|deny|edit|pick):([0-9a-f-]{36})(?::(\d{1,2}))?$/.exec(callback.data||'');
+   const match=/^(confirm|deny|edit|pick|voiceuse|voiceedit|voicedeny):([0-9a-f-]{36})(?::(\d{1,2}))?$/.exec(callback.data||'');
    if(!match)return res.json({ok:true});
    msg={...callback.message,from:callback.from,text:`/${match[1]} ${match[2]}${match[3]===undefined?'':' '+match[3]}`};
   }
@@ -23,14 +23,19 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback}) {
   try {
    if(callback && answerCallback)await answerCallback(callback.id).catch(()=>{});
    const process=async()=>{
-    if(!msg.text)return {text:'Hozircha faqat matn yuboring. Ovozli xabarlar hali qo‘llanmaydi.'};
+    if(runVoice){
+     const speech=await runVoice({masterId,conversationId,requestId:`telegram:${update.update_id}`,voice:msg.voice,text:msg.text});
+     if(speech)return telegramPresentation(speech);
+    }
+    if(!msg.text)return {text:'Ovozli xabar yoki matn yuboring.'};
+    if(clearVoice)await clearVoice({masterId,conversationId});
     if(msg.text.length>3000)return {text:'Xabar juda uzun. 3000 belgigacha yozing.'};
     const result=await runCommand({text:['/start','/new'].includes(msg.text)?'/new':msg.text,requestId:`telegram:${update.update_id}`,masterId,conversationId});
-    if(msg.text==='/start')return {text:'Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Tasdiqlash kerak bo‘lsa, tugmalardan foydalaning.\nYangi suhbat: /new. Ovozli xabarlar hali qo‘llanmaydi.'};
+    if(msg.text==='/start')return {text:'Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Tasdiqlash kerak bo‘lsa, tugmalardan foydalaning.\nYangi suhbat: /new. Ovozli xabar yuborsangiz, avval matnini tekshirib olamiz.'};
     return telegramPresentation(result);
    };
    if(deliver){
-    await deliver({updateId:update.update_id,conversationId,chatId:msg.chat.id,input:msg.text||'non-text',process});
+    await deliver({updateId:update.update_id,conversationId,chatId:msg.chat.id,input:msg.text||(msg.voice?`voice:${msg.voice.file_id}`:'non-text'),process});
     return res.json({ok:true});
    }
    return res.json({method:'sendMessage',chat_id:msg.chat.id,...await process()});
