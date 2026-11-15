@@ -1,6 +1,6 @@
 # Ustaxona repair records
 
-Uzbek text commands in Telegram, Gemini 3.5 Flash-Lite for interpretation, Turso for records and conversation state, and a read-only web dashboard. Hosted at https://repair-records.vercel.app.
+Uzbek text and voice commands in Telegram, Aisha/VoiceLab for speech recognition, Gemini 3.5 Flash-Lite for interpretation, Turso for records and conversation state, and a read-only web dashboard. Hosted at https://repair-records.vercel.app.
 
 ## Local setup
 
@@ -80,22 +80,32 @@ Other clients can `POST /api/commands` with the Action key and JSON `{ "request_
 Latest validation: 17 automated tests passed; all 50 fictional Uzbek model-evaluation cases passed in one run. A separate live Gemini test passed intake → price proposal → edit → revised proposal → confirmation using a temporary database. These checks do not measure real-world shop accuracy or guarantee exactly-once Telegram notifications.
 
 
-## Uzbek voice notes with Groq Whisper
+## Uzbek voice notes
 
-Set `GROQ_API_KEY` in your private `.env` and Vercel Production environment, then redeploy. Optional settings: `GROQ_WHISPER_MODEL=whisper-large-v3` (default; accuracy-oriented) or `whisper-large-v3-turbo` (speed-oriented), and `GROQ_SPEECH_LANGUAGE=uz` (default). Set language to `auto` to try language detection for mixed-language recordings. Provider quotas/billing apply separately from Gemini.
+Aisha/VoiceLab is the selected speech provider. Set `AISHA_API` in Vercel Production (aliases `AISHA_API_KEY` and `VOICELAB_API_KEY` are accepted), then redeploy. The supported developer endpoint is `https://api.voicelab.uz/v1/stt` with Bearer authentication, not the older Aisha `back.aisha.group` endpoint. Default language is Uzbek; optionally set `AISHA_SPEECH_LANGUAGE=uz`.
 
-An allowlisted user sends a Telegram **voice note** of up to 120 seconds and 10 MB. The server fetches the file from Telegram and uploads its bytes to Groq; it never gives Groq a Telegram download URL containing the bot token. No audio bytes are stored in Turso or on disk. Groq receives the audio for transcription; transcripts and review results are persisted for retries.
+`SPEECH_PROVIDER=aisha` explicitly selects Aisha. `SPEECH_PROVIDER=groq` explicitly selects Whisper. When no provider is specified, configured Aisha credentials select Aisha; otherwise the existing Groq configuration keeps working during setup. Runtime errors never silently switch providers. `/health` reports the active provider and whether its key is configured, without exposing secrets.
 
-The bot shows the transcript with **✅ Davom etish**, **✏️ Matnni tuzatish**, and **❌ Bekor qilish**. Nothing reaches the repair-command engine until the transcript is approved. Edit accepts a full corrected text and shows another preview with a new token. Accepted text goes through Gemini and the existing repair confirmation/audit flow. New messages invalidate old unused transcript buttons; transcript approvals expire after 15 minutes. /cancel cancels a pending transcript; /new also resets the conversation. Missing Groq configuration or transcription errors return a helpful message while text commands remain available.
+An allowlisted user sends a Telegram **voice note** of up to 120 seconds and 10 MB. The server fetches Telegram bytes and uploads them to the selected provider; it never sends the Telegram download URL containing the bot token. No audio bytes are stored in Turso or on disk. The provider receives the audio; transcripts, provider job IDs and review results are persisted for retries.
 
-To test a real local recording without writing repair records:
+The bot shows the transcript with **✅ Davom etish**, **✏️ Matnni tuzatish**, and **❌ Bekor qilish**. Nothing reaches the repair-command engine until the transcript is approved. Edit accepts a full corrected text and shows another preview with a new token. Accepted text goes through Gemini and the existing repair confirmation/audit flow. New messages invalidate old unused transcript buttons; transcript approvals expire after 15 minutes. /cancel cancels a pending transcript; /new also resets the conversation. Text commands remain available when speech configuration is missing.
+
+VoiceLab returns asynchronous jobs even for short recordings. The server immediately checks the first result, respects Retry-After for pending jobs, and spends at most about 20 seconds in a processing attempt. Jobs that remain pending resume on webhook retry. Stable UUID idempotency keys and persisted `speech_jobs` IDs prevent reuploading on retries. Logs contain provider upload/poll timing, not keys or spoken content.
+
+The user's test clip returned “Kechagilik analitika.” One run took 2.2 seconds: approximately 1.8 seconds for upload/job creation and 0.4 seconds for the first result fetch, with no polling sleep. These are sample measurements, not latency guarantees. Telegram transfer, database access and outgoing reply add to total bot latency. Gemini runs only after transcript acceptance.
+
+To test a local recording without writing repair records:
 
 ```sh
-npm run speech:try -- /absolute/path/voice.ogg
-npm run speech:try -- /absolute/path/voice.ogg --compare
+npm run speech:try -- /absolute/path/voice.ogg --provider aisha
+npm run speech:try -- /absolute/path/voice.ogg --provider groq --compare
 ```
 
-The second command calls both Whisper models and prints transcripts and elapsed times. Evaluate names, phone models and amounts using actual shop recordings. Automated tests mock recognition and verify language settings, file limits, authentication-before-processing, transcript review/edit/cancel, isolation and duplicate protection. Live Uzbek recognition accuracy still requires a valid Groq key and real voice samples.
+The Aisha command persists only its provider job ID to resume polling; the Groq comparison calls both Whisper models. Use real recordings to evaluate names, phone models, amounts and informal Uzbek. Tests verify endpoint/authentication, job resumption, transcript review, date references, isolation and duplicate protection.
+
+### Optional Whisper settings
+
+Set `GROQ_API_KEY` with `SPEECH_PROVIDER=groq`. Optional settings: `GROQ_WHISPER_MODEL=whisper-large-v3` (default) or `whisper-large-v3-turbo`, and `GROQ_SPEECH_LANGUAGE=uz` (default; `auto` enables language detection).
 
 
 The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Transcript review remains required; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.

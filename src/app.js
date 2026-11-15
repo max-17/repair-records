@@ -10,11 +10,11 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
 export const fields = z.object({customer:text,device:text,work:text,price_uzs:z.number().int().min(0).max(1e12).nullable().optional(),due_date:date.nullable().optional(),status:z.enum(['received','in_progress','ready','delivered','cancelled']).optional()});
 const creation = fields.extend({request_id:z.uuid()}).strict();
 const patch = fields.partial().strict().refine(v=>Object.keys(v).length>0,'Provide a field to update');
-export function createApp({db, apiKey, masterId, dashboardKey, runCommand, telegramHandler} = {}) {
+export function createApp({db, apiKey, masterId, dashboardKey, runCommand, telegramHandler, speechStatus} = {}) {
   const app=express();
   app.disable('x-powered-by');
   const configured=Boolean(db && apiKey && masterId);
-  app.get('/health',(_req,res)=>res.status(configured?200:503).json({ok:configured}));
+  app.get('/health',(_req,res)=>res.status(configured?200:503).json({ok:configured,speech:speechStatus}));
   app.use((_req,res,next)=> {
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('Referrer-Policy','no-referrer');

@@ -2,22 +2,29 @@ import {transcribe} from 'ai';
 import {createGroq} from '@ai-sdk/groq';
 import {randomUUID,createHash} from 'node:crypto';
 import {writeTransaction} from './audit.js';
+import {aishaRecognizer,AishaInputError} from './aisha.js';
 const MAX_BYTES=10*1024*1024;
 export class SpeechInputError extends Error{}
 export function groqTranscriber(env,{fetcher=fetch,recognize=transcribe}={}){
- return async voice=>{
-  if(!env.GROQ_API_KEY)throw new SpeechInputError('Ovoz uchun GROQ_API_KEY hali sozlanmagan. Hozircha matn yuboring.');
+ return telegramTranscriber(env,{fetcher,check:()=>{if(!env.GROQ_API_KEY)throw new SpeechInputError('Ovoz uchun GROQ_API_KEY hali sozlanmagan. Hozircha matn yuboring.');},recognize:audio=>recognizeAudio(env,audio,recognize)});
+}
+export function aishaTranscriber(env,{db,fetcher=fetch,...options}={}){
+ return telegramTranscriber(env,{fetcher,check:()=>{if(!(env.AISHA_API||env.AISHA_API_KEY||env.VOICELAB_API_KEY))throw new SpeechInputError('Ovoz uchun AISHA_API hali sozlanmagan. Hozircha matn yuboring.');},recognize:aishaRecognizer(env,{db,fetcher,...options})});
+}
+function telegramTranscriber(env,{fetcher,check,recognize}){
+ return async(voice,context)=>{
+  check();
   if(!voice||typeof voice.file_id!=='string'||!Number.isFinite(voice.duration)||voice.duration<1||voice.duration>120||voice.file_size>MAX_BYTES)throw new SpeechInputError('120 soniyagacha va 10 MB gacha ovozli xabar yuboring.');
   const metadata=await fetcher(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:voice.file_id}),signal:AbortSignal.timeout(10000)});
   const file=await metadata.json();const path=file.result?.file_path;
   if(!metadata.ok||!file.ok||!path||!/^[a-zA-Z0-9_./-]+$/.test(path)||path.split('/').includes('..')||path.startsWith('/')||file.result.file_size>MAX_BYTES)throw new SpeechInputError('Ovozli faylni olib bo‘lmadi. Qayta yuboring.');
-  // Download bytes locally: never give Groq a Telegram URL containing the bot token.
+  // Download bytes locally: never give a speech provider a Telegram URL containing the bot token.
   const response=await fetcher(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${path}`,{signal:AbortSignal.timeout(15000),redirect:'error'});
   if(!response.ok||Number(response.headers.get('content-length'))>MAX_BYTES)throw new SpeechInputError('Ovozli fayl juda katta yoki uni yuklab bo‘lmadi.');
   const reader=response.body.getReader();let length=0;const chunks=[];
   try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>MAX_BYTES)throw new SpeechInputError('Ovozli fayl 10 MB dan katta.');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
   if(!length)throw new SpeechInputError('Ovozli fayl bo‘sh. Qayta yozib yuboring.');
-  return recognizeAudio(env,Buffer.concat(chunks),recognize);
+  return recognize(Buffer.concat(chunks),context,voice);
  }; 
 }
 export async function recognizeAudio(env,audio,recognize=transcribe){
@@ -42,8 +49,8 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
   const button=/^\/(voiceuse|voiceedit|voicedeny) ([0-9a-f-]{36})$/.exec(text||'');
   let result,newDraft;
   if(voice){
-   try{const transcript=await transcribeVoice(voice);newDraft={token:randomUUID(),transcript,status:'pending',created_at:now()};result=preview(newDraft);}
-   catch(error){if(draft)newDraft={...draft,status:'cancelled'};result={kind:'speech_error',reply:error instanceof SpeechInputError?error.message:'Ovozni tanib bo‘lmadi. Keyinroq qayta yuboring yoki matn yozing.'};}
+   try{const transcript=await transcribeVoice(voice,{requestId,masterId,conversationId});newDraft={token:randomUUID(),transcript,status:'pending',created_at:now()};result=preview(newDraft);}
+   catch(error){if(error.retryable)throw error;if(draft)newDraft={...draft,status:'cancelled'};result={kind:'speech_error',reply:(error instanceof SpeechInputError||error instanceof AishaInputError)?error.message:'Ovozni tanib bo‘lmadi. Keyinroq qayta yuboring yoki matn yozing.'};}
   }else if(text==='/cancel' && draft && ['pending','editing'].includes(draft.status)){
    newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'Ovozli buyruq bekor qilindi. Buyurtma o‘zgarmadi.'};
   }else if(button){
