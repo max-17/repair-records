@@ -27,7 +27,7 @@ export async function recognizeAudio(env,audio,recognize=transcribe){
   if(!['whisper-large-v3','whisper-large-v3-turbo'].includes(model))throw new SpeechInputError('Whisper modeli noto‘g‘ri sozlangan.');
   const language=env.GROQ_SPEECH_LANGUAGE||'uz';
   const groq=createGroq({apiKey:env.GROQ_API_KEY});
-  const result=await recognize({model:groq.transcription(model),audio,maxRetries:0,abortSignal:AbortSignal.timeout(25000),providerOptions:{groq:{...(language==='auto'?{}:{language}),temperature:0,prompt:'Telefon ta’mirlash ustaxonasi. iPhone, Samsung, Redmi, ekran, batareya, so‘m, ming, million.'}}});
+  const result=await recognize({model:groq.transcription(model),audio,maxRetries:0,abortSignal:AbortSignal.timeout(25000),providerOptions:{groq:{...(language==='auto'?{}:{language}),temperature:0,prompt:env.GROQ_SPEECH_PROMPT||'Telefon ta’mirlash ustaxonasi. Bugungi analitika. Kechagi analitika. Hisobot. Buyurtmalar. iPhone, Samsung, Redmi, ekran, batareya, tayyor, topshirildi, so‘m, ming, million.'}}});
   const text=result.text.trim();
   if(text.length<2||text.length>3000)throw new SpeechInputError('Ovozdan aniq matn olinmadi yoki matn juda uzun. Qisqaroq qayta yozing.');
   return text;

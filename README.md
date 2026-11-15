@@ -96,3 +96,6 @@ npm run speech:try -- /absolute/path/voice.ogg --compare
 ```
 
 The second command calls both Whisper models and prints transcripts and elapsed times. Evaluate names, phone models and amounts using actual shop recordings. Automated tests mock recognition and verify language settings, file limits, authentication-before-processing, transcript review/edit/cancel, isolation and duplicate protection. Live Uzbek recognition accuracy still requires a valid Groq key and real voice samples.
+
+
+The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Transcript review remains required; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.
