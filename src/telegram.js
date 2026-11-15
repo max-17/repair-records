@@ -1,6 +1,6 @@
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
-export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice}) {
+export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons}) {
  return async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   const secret=env.TELEGRAM_WEBHOOK_SECRET;
@@ -36,9 +36,12 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
    };
    if(deliver){
     await deliver({updateId:update.update_id,conversationId,chatId:msg.chat.id,input:msg.text||(msg.voice?`voice:${msg.voice.file_id}`:'non-text'),process});
+    if(clearButtons)await clearButtons({conversationId,updateId:update.update_id,chatId:msg.chat.id,sourceMessageId:callback?.message?.message_id,onlySource:Boolean(callback)});
     return res.json({ok:true});
    }
-   return res.json({method:'sendMessage',chat_id:msg.chat.id,...await process()});
+   const payload=await process();
+   if(clearButtons)await clearButtons({conversationId,updateId:update.update_id,chatId:msg.chat.id,sourceMessageId:callback?.message?.message_id,onlySource:Boolean(callback)});
+   return res.json({method:'sendMessage',chat_id:msg.chat.id,...payload});
   }catch(error){
    console.error('Telegram command failed',{name:error.name,code:error.code||error.statusCode||'command_failed'});
    return res.status(503).json({error:'Command processing unavailable; retry later'});

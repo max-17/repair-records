@@ -89,7 +89,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
     const p=state.confirmation;
     result={kind:'editing',draft:{action:'update',repair_id:p.repair_id,fields:{customer:p.customer,device:p.device,...p.changes},question:'Nimani o‘zgartiramiz? Masalan: «Narxi 900 ming bo‘lsin».',at:timing.current_message_at},reply:'✏️ '+p.customer+' · '+p.device+'\nNimani o‘zgartiramiz? Masalan: «Narxi 900 ming bo‘lsin».'};
    }
-   else if(cancel)result={kind:'cancelled_confirmation',reply:'Bekor qilindi. Buyurtma o‘zgarmadi.'};
+   else if(cancel)result={kind:'cancelled_confirmation',reply:'i canceled action'};
    else if(handleConfirmation){
     const p=state.confirmation;
     const found=await tx.execute({sql:'SELECT * FROM repair_jobs WHERE master_id=? AND id=?',args:[masterId,p.repair_id]});

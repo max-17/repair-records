@@ -37,7 +37,7 @@ test('ambiguous match selection leads to confirmation, cancel is safe, and chang
  plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'ready'};
  const selected=await send('ready','3');assert.equal(selected.kind,'selection');assert.equal(telegramPresentation(selected).reply_markup.inline_keyboard.length,3);
  const confirm=await send(`/pick ${selected.selection.token} 0`,'4');assert.equal(confirm.kind,'confirmation');
- assert.equal((await send(`/deny ${confirm.proposal.token}`,'5')).kind,'cancelled_confirmation');
+ const cancelled=await send(`/deny ${confirm.proposal.token}`,'5');assert.equal(cancelled.kind,'cancelled_confirmation');assert.equal(cancelled.reply,'i canceled action');
  assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='ready'")).rows[0].n,0);
  const again=await send('ready','6');const current=await send(`/pick ${again.selection.token} 0`,'7');
  await db.execute({sql:'UPDATE repair_jobs SET price_uzs=123 WHERE id=?',args:[current.proposal.repair_id]});
@@ -91,4 +91,23 @@ test('audit failures roll back repair writes, state, and command cache together'
  const run=commandService({db,parse:async()=>create});
  await assert.rejects(run({text:'create',requestId:'1',masterId:'owner',conversationId:'chat'}));
  for(const table of ['repair_jobs','conversation_state','command_requests'])assert.equal((await db.execute(`SELECT count(*) AS n FROM ${table}`)).rows[0].n,0);
+}));
+
+test('button cleanup removes earlier keyboards and clicked message buttons but preserves the new reply keyboard',()=>withDb(async db=>{
+ const {telegramButtonCleanup}=await import('../src/telegram-ui.js');
+ const payload={chat_id:123,text:'Confirm?',reply_markup:{inline_keyboard:[[{text:'Yes',callback_data:'test'}]]}};
+ for(const [id,conversation]of [[1,'chat'],[2,'chat'],[3,'other'],[4,'chat']])await db.execute({sql:"INSERT INTO telegram_deliveries(update_id,conversation_id,input_hash,status,reply_text,telegram_message_id,created_at) VALUES(?,?,?,'sent',?,?,?)",args:[id,conversation,'hash',JSON.stringify(payload),100+id,id]});
+ const calls=[];const cleanup=telegramButtonCleanup({db,token:'test-token',fetcher:async(_url,options)=>{calls.push(JSON.parse(options.body));return Response.json({ok:true});}});
+ await cleanup({conversationId:'chat',updateId:2,chatId:123,sourceMessageId:99});
+ assert.deepEqual(calls.map(r=>r.message_id).sort((a,b)=>a-b),[99,101]);assert.ok(calls.every(r=>r.reply_markup.inline_keyboard.length===0));
+ const rows=(await db.execute('SELECT * FROM telegram_deliveries ORDER BY update_id')).rows;
+ assert.ok(!JSON.parse(rows[0].reply_text).reply_markup);assert.ok(JSON.parse(rows[1].reply_text).reply_markup);assert.ok(JSON.parse(rows[2].reply_text).reply_markup);assert.ok(JSON.parse(rows[3].reply_text).reply_markup);
+ calls.length=0;await cleanup({conversationId:'chat',updateId:2,chatId:123});assert.equal(calls.length,0);
+}));
+test('already removed keyboards are harmless while temporary Telegram failures remain retryable',()=>withDb(async db=>{
+ const {telegramButtonCleanup}=await import('../src/telegram-ui.js');
+ const harmless=telegramButtonCleanup({db,token:'test',fetcher:async()=>Response.json({ok:false,description:'Bad Request: message is not modified'},{status:400})});
+ await harmless({conversationId:'chat',updateId:1,chatId:123,sourceMessageId:99});
+ const failing=telegramButtonCleanup({db,token:'test',fetcher:async()=>Response.json({ok:false,error_code:429},{status:429})});
+ await assert.rejects(failing({conversationId:'chat',updateId:1,chatId:123,sourceMessageId:99}),/TELEGRAM_BUTTON_CLEANUP_FAILED/);
 }));

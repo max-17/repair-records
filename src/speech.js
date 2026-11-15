@@ -52,7 +52,7 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
    try{const transcript=await transcribeVoice(voice,{requestId,masterId,conversationId});newDraft={token:randomUUID(),transcript,status:'pending',created_at:now()};result=preview(newDraft);}
    catch(error){if(error.retryable)throw error;if(draft)newDraft={...draft,status:'cancelled'};result={kind:'speech_error',reply:(error instanceof SpeechInputError||error instanceof AishaInputError)?error.message:'Ovozni tanib bo‘lmadi. Keyinroq qayta yuboring yoki matn yozing.'};}
   }else if(text==='/cancel' && draft && ['pending','editing'].includes(draft.status)){
-   newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'Ovozli buyruq bekor qilindi. Buyurtma o‘zgarmadi.'};
+   newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'i canceled action'};
   }else if(button){
    if(!draft||draft.token!==button[2]||!['pending','editing'].includes(draft.status)||now()-Number(draft.created_at)>15*60*1000)result={kind:'expired_button',reply:'Bu ovozli xabarning tugmasi eskirgan. Ovoz yoki matnni qayta yuboring.'};
    else if(button[1]==='voiceuse' && draft.status==='pending'){
@@ -60,7 +60,7 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
    }else if(button[1]==='voiceedit'){
     newDraft={...draft,status:'editing'};result={kind:'transcript_edit',reply:'✏️ To‘g‘rilangan matnni to‘liq yozing. Keyin yana tekshirib olamiz. /cancel — bekor qilish.'};
    }else if(button[1]==='voicedeny'){
-    newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'Ovozli buyruq bekor qilindi. Buyurtma o‘zgarmadi.'};
+    newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'i canceled action'};
    }else result={kind:'expired_button',reply:'Avval matnni to‘g‘rilab yuboring.'};
   }else if(draft?.status==='editing'&&text && !text.startsWith('/')){
    if(text.length>3000)result={kind:'speech_error',reply:'Matnni 3000 belgigacha yozing.'};
