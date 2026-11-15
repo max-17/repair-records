@@ -37,7 +37,7 @@ test('ambiguous match selection leads to confirmation, cancel is safe, and chang
  plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'ready'};
  const selected=await send('ready','3');assert.equal(selected.kind,'selection');assert.equal(telegramPresentation(selected).reply_markup.inline_keyboard.length,3);
  const confirm=await send(`/pick ${selected.selection.token} 0`,'4');assert.equal(confirm.kind,'confirmation');
- const cancelled=await send(`/deny ${confirm.proposal.token}`,'5');assert.equal(cancelled.kind,'cancelled_confirmation');assert.equal(cancelled.reply,'i canceled action');
+ const cancelled=await send(`/deny ${confirm.proposal.token}`,'5');assert.equal(cancelled.kind,'cancelled_confirmation');assert.equal(cancelled.reply,'Amal bekor qilindi.');
  assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='ready'")).rows[0].n,0);
  const again=await send('ready','6');const current=await send(`/pick ${again.selection.token} 0`,'7');
  await db.execute({sql:'UPDATE repair_jobs SET price_uzs=123 WHERE id=?',args:[current.proposal.repair_id]});
