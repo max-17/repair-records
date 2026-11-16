@@ -1,0 +1,32 @@
+/* Repairs shares the catalog toolbar, table and theme tokens. */
+.repair-workspace{min-width:0}
+.repair-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.repair-toolbar>.search-box{flex:1;min-width:220px;max-width:560px;height:46px;border-radius:9px}
+.repair-toolbar>.search-box input{height:44px;font-size:14px}
+.repair-toolbar>.select-trigger{min-width:180px;height:46px;font-size:13px}
+.repair-toolbar>.button{height:46px;font-size:13px;margin-left:auto}
+.repair-table table{min-width:1080px}
+.repair-table th{white-space:nowrap}
+.repair-table td{height:72px;vertical-align:middle;line-height:1.5}
+.repair-table .repair-customer,.repair-table .repair-device{font-weight:600}
+.repair-table .repair-work{min-width:180px;max-width:280px}
+.repair-table .repair-date{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted-foreground)}
+.repair-status{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap;background:var(--muted);color:var(--muted-foreground)}
+.repair-status>span{width:6px;height:6px;border-radius:50%;background:currentColor}
+.repair-status[data-status=ready],.repair-status[data-status=delivered]{color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent)}
+.repair-status[data-status=in_progress]{color:#b88320;background:color-mix(in srgb,#b88320 12%,transparent)}
+.repair-status[data-status=cancelled]{color:var(--danger);background:var(--danger-bg)}
+.repair-table-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;color:var(--muted-foreground);font-size:12px}
+.repair-table-footer nav{display:flex;align-items:center;gap:12px}
+.repair-table-footer nav>.button{width:44px;height:44px}
+.repair-table-footer nav>span{min-width:20px;text-align:center;color:var(--foreground);font-weight:600}
+.repair-footnote{font-size:12px;color:var(--muted-foreground);line-height:1.7;margin-top:8px}
+.repair-empty{display:grid;justify-items:center;gap:10px;padding:54px 20px;color:var(--muted-foreground);font-size:13px;text-align:center}
+.repair-empty strong{font-size:15px;color:var(--foreground)}
+.repair-empty p{margin:0}
+.repair-workspace .form-error{display:flex;align-items:center;justify-content:space-between;gap:12px}
+@media(max-width:650px){.repair-toolbar{gap:8px}.repair-toolbar>.search-box{flex-basis:100%;max-width:none;min-width:0}.repair-toolbar>.select-trigger{flex:1;min-width:0}.repair-toolbar>.button{margin-left:0}.repair-table-footer{gap:8px}.repair-footnote{max-width:100%}}
+@media(prefers-reduced-motion:no-preference){.repair-refreshing{animation:repair-spin 1s linear infinite}@keyframes repair-spin{to{transform:rotate(360deg)}}}
+.admin-section-repairs .admin-main,.admin-section-repairs .admin-content{min-width:0;max-width:100%}
+.repair-table{width:100%;max-width:100%;overflow-x:auto}
+@media(max-width:760px){.admin-section-repairs .admin-sidebar nav{overflow-x:auto;flex-wrap:nowrap}.admin-section-repairs .admin-sidebar nav>a{flex-shrink:0}}
