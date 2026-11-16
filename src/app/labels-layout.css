@@ -10,3 +10,27 @@
 .billz-label-preview .label-preview-document .barcode-label{aspect-ratio:60/24;justify-content:flex-start;min-width:0}
 .billz-label-preview .label-preview-document .barcode-label-code svg{height:22px}
 .billz-labels .label-sticker-stage{min-height:240px;padding-inline:0}
+
+/* Reference sticker: centered name, tall barcode, readable code and bottom price. */
+.billz-labels .label-sticker-stage>.barcode-label{box-sizing:border-box;width:300px;min-height:200px;aspect-ratio:3/2;padding:16px 18px;gap:8px;justify-content:flex-start;border-radius:10px}
+.billz-labels .label-sticker-stage>.barcode-label>.barcode-label-name{font:700 17px/1.2 sans-serif;text-align:center;height:auto;min-height:1.2em;max-height:2.4em}
+.billz-labels .label-sticker-stage>.barcode-label>.barcode-label-code{margin-top:auto}
+.billz-labels .label-sticker-stage>.barcode-label .barcode-label-code svg{height:65px}
+.billz-labels .label-sticker-stage>.barcode-label>span{font:700 14px/1.2 sans-serif}
+.billz-labels .label-sticker-stage>.barcode-label>.barcode-label-price{font:700 21px/1.2 sans-serif;align-self:center;margin-top:auto}
+.billz-label-preview .label-preview-document .barcode-label{aspect-ratio:3/2;gap:4px;justify-content:flex-start;border-radius:3mm;padding:2mm}
+.billz-label-preview .label-preview-document .barcode-label-name{font:700 11px/1.2 sans-serif;text-align:center;height:auto;max-height:2.4em}
+.billz-label-preview .label-preview-document .barcode-label-code{margin-top:auto}
+.billz-label-preview .label-preview-document .barcode-label-code svg{height:45px}
+.billz-label-preview .label-preview-document .barcode-label>span{font:700 10px/1.2 sans-serif}
+.billz-label-preview .label-preview-document .barcode-label-price{font:700 14px/1.2 sans-serif;align-self:center}
+@media print{
+ .billz-labels .label-print-sheet .barcode-label{height:40mm;min-height:40mm;max-height:40mm;padding:3mm;gap:1mm;border:0;border-radius:0;justify-content:flex-start}
+ .billz-labels .label-print-sheet .barcode-label-name{font:700 10pt/1.2 sans-serif;text-align:center;height:auto;max-height:2.4em}
+ .billz-labels .label-print-sheet .barcode-label-code{margin-top:auto}
+ .billz-labels .label-print-sheet .barcode-label-code svg{height:13mm}
+ .billz-labels .label-print-sheet .barcode-label>span{font:700 8pt/1.2 sans-serif}
+ .billz-labels .label-print-sheet .barcode-label-price{font:700 12pt/1.2 sans-serif;align-self:center;margin-top:auto}
+ .billz-labels .label-print-sheet .barcode-label:nth-child(30n){break-after:auto}
+ .billz-labels .label-print-sheet .barcode-label:nth-child(18n){break-after:page}
+}
