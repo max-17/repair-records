@@ -34,3 +34,10 @@
  .billz-labels .label-print-sheet .barcode-label:nth-child(30n){break-after:auto}
  .billz-labels .label-print-sheet .barcode-label:nth-child(18n){break-after:page}
 }
+
+/* Keep the same alignment in the live sample, dialog and printed sheet. */
+:is(.billz-labels,.billz-label-preview) .barcode-label.reference-sticker{align-items:center;text-align:center}
+:is(.billz-labels,.billz-label-preview) .barcode-label.reference-sticker>.barcode-label-name{align-self:stretch;text-align:center}
+:is(.billz-labels,.billz-label-preview) .barcode-label.reference-sticker>.barcode-label-code{align-self:stretch;width:100%;min-width:0}
+:is(.billz-labels,.billz-label-preview) .barcode-label.reference-sticker>.barcode-label-code>svg{width:100%;max-width:none}
+:is(.billz-labels,.billz-label-preview) .barcode-label.reference-sticker>.barcode-label-price{align-self:center;text-align:center}

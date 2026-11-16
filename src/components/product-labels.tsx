@@ -56,7 +56,7 @@ export function ProductLabels({code,productId,productIds,initialCopies}:{code?:s
     try{window.print();}finally{flushSync(()=>setTestPrint(false));}
   }
   const allVisible=visible.length>0&&visible.every(product=>selection===null||selection.has(product.id));
-  const renderLabel=(label:LabelProduct,index:number)=><div className="barcode-label" key={label.code+'-'+index}><strong className="barcode-label-name" title={label.name}>{label.name}</strong><div className="barcode-label-code"><ProductBarcode value={label.code}/></div><span>{label.code}</span><b className="barcode-label-price">{money(label.price)} UZS</b></div>;
+  const renderLabel=(label:LabelProduct,index:number)=><div className="barcode-label reference-sticker" key={label.code+'-'+index}><strong className="barcode-label-name" title={label.name}>{label.name}</strong><div className="barcode-label-code"><ProductBarcode value={label.code}/></div><span>{label.code}</span><b className="barcode-label-price">{money(label.price)} UZS</b></div>;
   return <main className="label-print-page billz-labels">
     <div className="label-screen">
       <header className="label-page-heading"><Link className="label-back-button" href="/admin" aria-label="Katalogga qaytish" title="Katalogga qaytish"><ArrowLeft size={20}/></Link><div className="label-heading-copy"><h1>Yorliqlarni chop etish</h1><p>Mahsulot nomi, narxi va shtrix-kodi</p></div><div className="label-heading-actions"><Button variant="outline" disabled={!printable} onClick={()=>setPreviewOpen(true)}><Eye size={18}/><span>Barcha betlar</span></Button><Button disabled={!printable} onClick={()=>print()}><Printer size={18}/><span>Chop etish</span>{total>0?' · '+total:''}</Button></div></header>
