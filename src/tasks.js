@@ -6,19 +6,13 @@ export function confirmationAnswer(text){
  if(['yoq','bekor','bekorqil','cancel','no'].includes(normalized)||text.trim()==='/cancel')return 'no';
  return null;
 }
-export function snapshot(row){return JSON.stringify(Object.fromEntries(['id','master_id','customer','device','work','price_uzs','due_date','status','updated_at'].map(k=>[k,row[k]])));}
-export function requiresConfirmation(plan,row,timing){
- const customer=value=>normalize(value.replace(/\s+aka$/iu,''));
- return plan.price_uzs!==null || ['delivered','cancelled'].includes(plan.status) ||
-  customer(plan.customer)!==customer(row.customer)||normalize(plan.device)!==normalize(row.device)||
-  (plan.memory?.uses_active_repair && timing.inactivity_seconds>300);
-}
+export function snapshot(row){return JSON.stringify(Object.fromEntries(['id','master_id','customer','device','work','price_uzs','due_date','status','received_by','received_by_name','technician','updated_at'].map(k=>[k,row[k]])));}
 export function proposal(row,changes,now){
  return {token:randomUUID(),repair_id:row.id,customer:row.customer,device:row.device,changes,before_snapshot:snapshot(row),at:new Date(now).toISOString()};
 }
 export function proposalReply(p){
  const before=JSON.parse(p.before_snapshot);
- const names={price_uzs:'Narx',status:'Holat',due_date:'Tayyor sanasi',work:'Ta’mirlash'};
+ const names={price_uzs:'Narx',status:'Holat',due_date:'Tayyor sanasi',work:'Ta’mirlash',technician:'Usta'};
  const statuses={ready:'Tayyor',delivered:'Topshirildi',cancelled:'Bekor qilindi',in_progress:'Jarayonda',received:'Qabul qilindi'};
  const format=(k,v)=>v==null?'Belgilanmagan':k==='price_uzs'?new Intl.NumberFormat('uz-UZ').format(v)+' so‘m':k==='status'?statuses[v]||v:v;
  return `${p.customer} · ${p.device}\n${Object.entries(p.changes).map(([k,v])=>`${names[k]}: ${format(k,before[k])} → ${format(k,v)}`).join('\n')}\nTasdiqlaysizmi?`;

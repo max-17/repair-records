@@ -53,4 +53,9 @@ export async function setup(db) {
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     UNIQUE(master_id, request_id)
   )`);
+  const columns=(await db.execute('PRAGMA table_info(repair_jobs)')).rows.map(row=>row.name);
+  for(const name of ['received_by','received_by_name','technician']){
+    if(!columns.includes(name))await db.execute(`ALTER TABLE repair_jobs ADD COLUMN ${name} TEXT`);
+  }
+
 }

@@ -38,6 +38,14 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "technician": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 300,
+                    "description": "Explicitly named repair technician, separate from the authenticated employee who received the order. Does not change access permissions."
+                  },
                   "customer": {
                     "type": "string",
                     "maxLength": 300
@@ -176,6 +184,14 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "technician": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 300,
+                    "description": "Explicitly named repair technician, separate from the authenticated employee who received the order. Does not change access permissions."
+                  },
                   "customer": {
                     "type": "string",
                     "maxLength": 300

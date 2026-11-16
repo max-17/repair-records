@@ -1,5 +1,5 @@
 import {todayInTashkent} from './time.js';
-const keys=['customer','device','work','price_uzs','due_date','status','start_date','end_date'];
+const keys=['customer','device','work','price_uzs','due_date','status','technician','start_date','end_date'];
 export function messageTiming(state,now){
  const previous=state.last_exchange?.at;
  const timestamp=Date.parse(previous);

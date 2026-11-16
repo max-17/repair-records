@@ -145,10 +145,10 @@ test('Telegram callback buttons are authenticated and routed as token-bound comm
  try{assert.equal((await post(789)).status,200);assert.equal(calls,0);assert.equal((await post(123)).status,200);assert.equal(received.text,`/confirm ${token}`);assert.equal(received.masterId,'owner');assert.equal(presentation.text,'Updated');}finally{await new Promise(r=>server.close(r));}
 });
 
-test('unauthorized Telegram voice notes never reach speech recognition',async()=>{
- let calls=0;
- const handler=telegramWebhook({env:{TELEGRAM_WEBHOOK_SECRET:'test',TELEGRAM_MASTERS:'{"123":"owner"}'},runCommand:async()=>({reply:'ok'}),runVoice:async()=>{calls++;return {kind:'speech_error',reply:'Test'};}});
+test('unauthorized Telegram voice notes never reach speech recognition and authorized voices carry original message time',async()=>{
+ let calls=0,receivedVoice;
+ const handler=telegramWebhook({env:{TELEGRAM_WEBHOOK_SECRET:'test',TELEGRAM_MASTERS:'{"123":"owner"}'},runCommand:async()=>({reply:'ok'}),runVoice:async input=>{calls++;receivedVoice=input;return {kind:'speech_error',reply:'Test'};}});
  const server=createApp({telegramHandler:handler}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
- const post=(id,secret)=>fetch(`http://127.0.0.1:${server.address().port}/api/telegram/webhook`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':secret},body:JSON.stringify({update_id:100,message:{voice:{file_id:'sample',duration:5},from:{id},chat:{id,type:'private'}}})});
- try{assert.equal((await post(123,'wrong')).status,401);await post(789,'test');assert.equal(calls,0);assert.equal((await post(123,'test')).status,200);assert.equal(calls,1);}finally{await new Promise(r=>server.close(r));}
+ const post=(id,secret)=>fetch(`http://127.0.0.1:${server.address().port}/api/telegram/webhook`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':secret},body:JSON.stringify({update_id:100,message:{date:1794653940,voice:{file_id:'sample',duration:5},from:{id},chat:{id,type:'private'}}})});
+ try{assert.equal((await post(123,'wrong')).status,401);await post(789,'test');assert.equal(calls,0);assert.equal((await post(123,'test')).status,200);assert.equal(calls,1);assert.equal(receivedVoice.receivedAt,1794653940000);}finally{await new Promise(r=>server.close(r));}
 });

@@ -6,52 +6,67 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {setup} from '../src/db.js';
 import {commandService} from '../src/commands.js';
-import {telegramPresentation} from '../src/tasks.js';
+import {telegramPresentation,proposal} from '../src/tasks.js';
 import {telegramDelivery} from '../src/delivery.js';
 const blank={action:'clarify',customer:null,device:null,work:null,price_uzs:null,due_date:null,status:null,start_date:null,end_date:null,question:null};
 async function withDb(fn){const dir=await mkdtemp(join(tmpdir(),'reliability-'));const db=createClient({url:`file:${join(dir,'test.db')}`});try{await setup(db);await fn(db);}finally{db.close();await rm(dir,{recursive:true,force:true});}}
 const create={...blank,action:'create',customer:'Bekzod',device:'iPhone 14 Pro',work:'Screen',price_uzs:1000000};
-test('confirmation buttons support edit, reject old buttons, and commit exactly one audited update',()=>withDb(async db=>{
+test('explicit staff updates execute once immediately and remain audited without confirmation',()=>withDb(async db=>{
  let plan=create;let parses=0;
  const run=commandService({db,parse:async()=>{parses++;return plan;}});
  const send=(text,requestId)=>run({text,requestId,masterId:'owner',conversationId:'chat'});
  const saved=await send('create','1');
  plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',price_uzs:900000};
- const proposal=await send('price','2');assert.equal(proposal.kind,'confirmation');
- const presentation=telegramPresentation(proposal);const buttons=presentation.reply_markup.inline_keyboard.flat();assert.equal(buttons.length,3);assert.ok(buttons.every(b=>Buffer.byteLength(b.callback_data)<=64));
- assert.equal((await db.execute('SELECT price_uzs FROM repair_jobs')).rows[0].price_uzs,1000000);
- const count=parses;
- assert.equal((await send(`/edit ${proposal.proposal.token}`,'3')).kind,'editing');assert.equal(parses,count);
- plan={...plan,price_uzs:800000,memory:{topic:'continue',pending_action:null,uses_active_repair:false}};
- const revised=await send('800 ming','4');assert.equal(revised.kind,'confirmation');
- assert.equal((await send(`/confirm ${proposal.proposal.token}`,'5')).kind,'expired_button');
- const confirmed=await send(`/confirm ${revised.proposal.token}`,'6');assert.equal(confirmed.kind,'updated');assert.equal(confirmed.repair.price_uzs,800000);
- assert.deepEqual(await send(`/confirm ${revised.proposal.token}`,'6'),confirmed);
- assert.equal((await send(`/confirm ${revised.proposal.token}`,'7')).kind,'expired_button');
- const events=await db.execute('SELECT * FROM repair_events ORDER BY created_at,id');assert.equal(events.rows.length,2);
- const change=events.rows.find(r=>r.event_type==='updated');assert.equal(JSON.parse(change.before_json).price_uzs,1000000);assert.equal(JSON.parse(change.after_json).price_uzs,800000);assert.equal(change.actor_id,'chat');assert.equal(change.repair_id,saved.repair.id);
+ const updated=await send('price','2');assert.equal(updated.kind,'updated');assert.equal(updated.repair.price_uzs,900000);
+ assert.ok(!telegramPresentation(updated).reply_markup);
+ const count=parses;assert.deepEqual(await send('price','2'),updated);assert.equal(parses,count);
+ assert.equal((await send('/confirm 11111111-1111-4111-8111-111111111111','3')).kind,'expired_button');assert.equal(parses,count);
+ plan={...plan,price_uzs:null,status:'delivered'};
+ const delivered=await send('Topshirdim','4');assert.equal(delivered.kind,'updated');assert.equal(delivered.repair.status,'delivered');
+ const events=await db.execute('SELECT * FROM repair_events ORDER BY created_at,id');assert.equal(events.rows.length,3);
+ const change=events.rows.find(r=>JSON.parse(r.after_json).price_uzs===900000&&JSON.parse(r.before_json||'null')?.price_uzs===1000000);
+ assert.equal(change.actor_id,'chat');assert.equal(change.repair_id,saved.repair.id);
+ const state=JSON.parse((await db.execute('SELECT state_json FROM conversation_state')).rows[0].state_json);assert.ok(!state.confirmation);
 }));
-test('ambiguous match selection leads to confirmation, cancel is safe, and changed records invalidate proposals',()=>withDb(async db=>{
+test('ambiguous selection is cancellable and selecting a current snapshot executes exactly once',()=>withDb(async db=>{
  let plan=create;const run=commandService({db,parse:async()=>plan});const send=(text,requestId)=>run({text,requestId,masterId:'owner',conversationId:'chat'});
  await send('new','1');await send('new again','2');
  plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'ready'};
- const selected=await send('ready','3');assert.equal(selected.kind,'selection');assert.equal(telegramPresentation(selected).reply_markup.inline_keyboard.length,3);
- const confirm=await send(`/pick ${selected.selection.token} 0`,'4');assert.equal(confirm.kind,'confirmation');
- const cancelled=await send(`/deny ${confirm.proposal.token}`,'5');assert.equal(cancelled.kind,'cancelled_confirmation');assert.equal(cancelled.reply,'Amal bekor qilindi.');
+ const selected=await send('ready','3');assert.equal(selected.kind,'selection');
+ const buttons=telegramPresentation(selected).reply_markup.inline_keyboard.flat();assert.equal(buttons.length,3);assert.ok(buttons.every(b=>Buffer.byteLength(b.callback_data)<=64));
+ assert.equal((await send(`/deny ${selected.selection.token}`,'4')).reply,'Amal bekor qilindi.');
  assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='ready'")).rows[0].n,0);
- const again=await send('ready','6');const current=await send(`/pick ${again.selection.token} 0`,'7');
- await db.execute({sql:'UPDATE repair_jobs SET price_uzs=123 WHERE id=?',args:[current.proposal.repair_id]});
- assert.equal((await send(`/confirm ${current.proposal.token}`,'8')).kind,'cancelled_confirmation');
- assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='ready'")).rows[0].n,0);
+ const again=await send('ready','5');const updated=await send(`/pick ${again.selection.token} 0`,'6');assert.equal(updated.kind,'updated');
+ assert.deepEqual(await send(`/pick ${again.selection.token} 0`,'6'),updated);
+ assert.equal((await send(`/pick ${again.selection.token} 0`,'7')).kind,'expired_button');
+ assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='ready'")).rows[0].n,1);
+ assert.equal((await db.execute("SELECT count(*) AS n FROM repair_events WHERE event_type='updated'")).rows[0].n,1);
+ const pending=await send('ready','8');await db.execute({sql:'UPDATE repair_jobs SET price_uzs=123 WHERE id=?',args:[pending.selection.candidates[0].id]});
+ assert.equal((await send(`/pick ${pending.selection.token} 0`,'9')).kind,'cancelled_confirmation');
+ assert.equal((await db.execute("SELECT count(*) AS n FROM repair_events WHERE event_type='updated'")).rows[0].n,1);
 }));
-test('write proposals expire without deleting persistent conversation state',()=>withDb(async db=>{
+test('selection buttons expire without deleting persistent conversation state',()=>withDb(async db=>{
  let time=Date.parse('2026-11-14T10:00:00Z');let plan=create;
  const run=commandService({db,parse:async()=>plan,now:()=>time});const send=(text,id)=>run({text,requestId:id,masterId:'owner',conversationId:'chat'});
- await send('new','1');plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'delivered'};
- const p=await send('delivered','2');assert.equal(p.kind,'confirmation');time+=16*60*1000;
- assert.equal((await send(`/confirm ${p.proposal.token}`,'3')).kind,'cancelled_confirmation');
- assert.equal((await db.execute('SELECT status FROM repair_jobs')).rows[0].status,'received');
- const state=JSON.parse((await db.execute('SELECT state_json FROM conversation_state')).rows[0].state_json);assert.ok(state.active_repair);assert.ok(!state.confirmation);
+ await send('new','1');await send('new again','2');plan={...blank,action:'update',customer:'Bekzod',device:'iPhone 14 Pro',status:'delivered'};
+ const selected=await send('delivered','3');assert.equal(selected.kind,'selection');time+=16*60*1000;
+ assert.equal((await send(`/pick ${selected.selection.token} 0`,'4')).kind,'cancelled_confirmation');
+ assert.equal((await db.execute("SELECT count(*) AS n FROM repair_jobs WHERE status='received'")).rows[0].n,2);
+ const state=JSON.parse((await db.execute('SELECT state_json FROM conversation_state')).rows[0].state_json);assert.ok(state.active_repair);assert.ok(!state.selection);
+}));
+test('legacy confirmation buttons remain token-bound and reject changed snapshots',()=>withDb(async db=>{
+ let plan=create;const run=commandService({db,parse:async()=>plan});const send=(text,id)=>run({text,requestId:id,masterId:'owner',conversationId:'chat'});
+ const saved=await send('new','1');
+ const old=proposal(saved.repair,{price_uzs:800000},Date.now());
+ const setProposal=async p=>{const state=JSON.parse((await db.execute('SELECT state_json FROM conversation_state')).rows[0].state_json);state.confirmation=p;await db.execute({sql:'UPDATE conversation_state SET state_json=?,revision=revision+1',args:[JSON.stringify(state)]});};
+ await setProposal(old);
+ assert.equal((await send('/confirm 11111111-1111-4111-8111-111111111111','2')).kind,'expired_button');
+ await db.execute({sql:'UPDATE repair_jobs SET price_uzs=123 WHERE id=?',args:[saved.repair.id]});
+ assert.equal((await send(`/confirm ${old.token}`,'3')).kind,'cancelled_confirmation');
+ const row=(await db.execute({sql:'SELECT * FROM repair_jobs WHERE id=?',args:[saved.repair.id]})).rows[0];const fresh=proposal(row,{price_uzs:700000},Date.now());await setProposal(fresh);
+ const updated=await send(`/confirm ${fresh.token}`,'4');assert.equal(updated.kind,'updated');assert.equal(updated.repair.price_uzs,700000);
+ assert.deepEqual(await send(`/confirm ${fresh.token}`,'4'),updated);
+ assert.equal((await send(`/confirm ${fresh.token}`,'5')).kind,'expired_button');
 }));
 test('failed Telegram send retries stored reply without rerunning the command; sent updates are not resent',()=>withDb(async db=>{
  let processes=0,sends=0;

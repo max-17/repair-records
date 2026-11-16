@@ -29,7 +29,8 @@ test('pending jobs persist and resume without reupload or command mutation',()=>
  await assert.rejects(run(audio,context),AishaPendingError);assert.equal(uploads,1);
  const service=voiceService({db,transcribeVoice:async()=>{throw new AishaPendingError('still waiting');},runCommand:async()=>{throw new Error('must not run');}});
  await assert.rejects(service({masterId:'owner',conversationId:'chat',requestId:'1',voice:{file_id:'file'}}),AishaPendingError);
- assert.equal((await db.execute('SELECT count(*) AS n FROM command_requests')).rows[0].n,0);
+ assert.deepEqual((await db.execute('SELECT request_id FROM command_requests')).rows.map(r=>r.request_id),['speech-input:1']);
+ assert.equal((await db.execute('SELECT count(*) AS n FROM repair_jobs')).rows[0].n,0);
  completed=true;assert.equal(await run(audio,context),'Kechagilik analitika.');assert.equal(uploads,1);
 }));
 test('Aisha access and balance failures are actionable and do not silently use another provider',async()=>{

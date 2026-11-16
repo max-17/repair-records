@@ -1,13 +1,13 @@
 import express from 'express';
 import {auditRepair,writeTransaction} from './audit.js';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 const text = z.string().trim().min(1).max(300);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
   const d = new Date(v); return !isNaN(d) && d.toISOString().slice(0,10) === v;
 }, 'Use a real calendar date');
-export const fields = z.object({customer:text,device:text,work:text,price_uzs:z.number().int().min(0).max(1e12).nullable().optional(),due_date:date.nullable().optional(),status:z.enum(['received','in_progress','ready','delivered','cancelled']).optional()});
+export const fields = z.object({customer:text,device:text,work:text,technician:text.nullable().optional(),price_uzs:z.number().int().min(0).max(1e12).nullable().optional(),due_date:date.nullable().optional(),status:z.enum(['received','in_progress','ready','delivered','cancelled']).optional()});
 const creation = fields.extend({request_id:z.uuid()}).strict();
 const patch = fields.partial().strict().refine(v=>Object.keys(v).length>0,'Provide a field to update');
 export function createApp({db, apiKey, masterId, dashboardKey, runCommand, telegramHandler, speechStatus} = {}) {
@@ -21,7 +21,8 @@ export function createApp({db, apiKey, masterId, dashboardKey, runCommand, teleg
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     next();
   });
-  app.use(express.static(fileURLToPath(new URL('../public/',import.meta.url))));
+  app.get('/',(_req,res)=>res.sendFile(resolve('public/repairs/index.html')));
+  app.use(express.static(resolve('public')));
   if(telegramHandler) app.post('/api/telegram/webhook',express.json({limit:'16kb'}),telegramHandler);
   app.use('/api', (req,res,next)=> {
     res.setHeader('Cache-Control','no-store');
@@ -56,14 +57,14 @@ export function createApp({db, apiKey, masterId, dashboardKey, runCommand, teleg
     if(!parsed.success) return res.status(400).json({error:parsed.error.issues});
     const v=parsed.data;
     const result=await writeTransaction(db,async tx=>{
-    const inserted=await tx.execute({sql:`INSERT INTO repair_jobs (id,master_id,request_id,customer,device,work,price_uzs,due_date,status) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(master_id,request_id) DO NOTHING RETURNING *`,args:[randomUUID(),masterId,v.request_id,v.customer,v.device,v.work,v.price_uzs??null,v.due_date??null,v.status??'received']});
+    const inserted=await tx.execute({sql:`INSERT INTO repair_jobs (id,master_id,request_id,customer,device,work,price_uzs,due_date,status,received_by,received_by_name,technician) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(master_id,request_id) DO NOTHING RETURNING *`,args:[randomUUID(),masterId,v.request_id,v.customer,v.device,v.work,v.price_uzs??null,v.due_date??null,v.status??'received',masterId,masterId,v.technician??null]});
       if(inserted.rows.length)await auditRepair(tx,{masterId,requestId:v.request_id,actorId:`api:${masterId}`,after:inserted.rows[0]});
       return inserted;
     });
     if(result.rows.length) return res.status(201).json(result.rows[0]);
     const prior=await db.execute({sql:'SELECT * FROM repair_jobs WHERE master_id=? AND request_id=?',args:[masterId,v.request_id]});
     const row=prior.rows[0];
-    if(['customer','device','work','price_uzs','due_date','status'].some(k=>row[k] !== (v[k]??(k==='status'?'received':null)))) return res.status(409).json({error:'Request ID already used with different details'});
+    if(['customer','device','work','price_uzs','due_date','status','technician'].some(k=>row[k] !== (v[k]??(k==='status'?'received':null)))) return res.status(409).json({error:'Request ID already used with different details'});
     res.json(row);
   });
   app.get('/api/repairs',async(req,res)=> {

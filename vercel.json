@@ -1,22 +1,9 @@
 {
-  "rewrites": [
+  "framework": "nextjs",
+  "crons": [
     {
-      "source": "/api/:path*",
-      "destination": "/api"
-    },
-    {
-      "source": "/health",
-      "destination": "/api"
-    },
-    {
-      "source": "/",
-      "destination": "/index.html"
+      "path": "/api/telegram/cron",
+      "schedule": "0 2 * * *"
     }
-  ],
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "public/**"
-    }
-  },
-  "framework": null
+  ]
 }

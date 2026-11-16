@@ -5,3 +5,12 @@ node_modules/
 *.db
 *.db-*
 .vercel/
+
+.next/
+data/
+*.tsbuildinfo
+
+library-files/ui-review/
+
+# Local business discovery notes
+/BUSINESS-NOTES.md

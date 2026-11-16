@@ -25,7 +25,7 @@ async function load(){
    const id=document.createElement('small');id.textContent=job.id;customer.append(id);
    const status=cell('');const badge=document.createElement('span');
    badge.className='badge '+(Object.hasOwn(labels,job.status)?job.status:'');badge.textContent=labels[job.status]||job.status;status.append(badge);
-   tr.append(customer,cell(job.device),cell(job.work),cell(job.price_uzs==null?'—':money.format(job.price_uzs)+' so‘m'),cell(job.due_date||'Belgilanmagan'),status);$('rows').append(tr);
+   tr.append(customer,cell(job.device),cell(job.work),cell(job.received_by_name||job.received_by||'Noma’lum'),cell(job.technician||'Belgilanmagan'),cell(job.price_uzs==null?'—':money.format(job.price_uzs)+' so‘m'),cell(job.due_date||'Belgilanmagan'),status);$('rows').append(tr);
   }
   $('empty').hidden=data.repairs.length!==0;$('count').textContent=`${data.repairs.length} ta buyurtma · ${page}-sahifa`;$('page').textContent=`${page}-sahifa`;
   $('previous').disabled=page===1;$('next').disabled=data.repairs.length<100;message('');
