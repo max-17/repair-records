@@ -1,6 +1,6 @@
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
-export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons}) {
+export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu}) {
  return async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   const secret=env.TELEGRAM_WEBHOOK_SECRET;
@@ -25,6 +25,10 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
   try {
    if(callback && answerCallback)await answerCallback(callback.id).catch(()=>{});
    const process=async()=>{
+    if(runMenu){
+     const menu=await runMenu({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:msg.text});
+     if(menu.payload)return menu.payload;
+    }
     if(runVoice){
      const speech=await runVoice({masterId,conversationId,requestId:`telegram:${update.update_id}`,voice:msg.voice,text:msg.text,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
      if(speech)return telegramPresentation(speech);

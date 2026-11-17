@@ -20,14 +20,14 @@ export function proposalReply(p){
 
 export function telegramPresentation(result){
  const buttons=result.kind==='transcript'?[
-  [{text:'✅ Tasdiqlash',callback_data:`voiceuse:${result.draft.token}`},{text:'✏️ Tahrirlash',callback_data:`voiceedit:${result.draft.token}`}],
-  [{text:'❌ Bekor qilish',callback_data:`voicedeny:${result.draft.token}`}]
+  [{text:'Tasdiqlash',style:'success',callback_data:`voiceuse:${result.draft.token}`},{text:'Tahrirlash',callback_data:`voiceedit:${result.draft.token}`}],
+  [{text:'Bekor qilish',style:'danger',callback_data:`voicedeny:${result.draft.token}`}]
  ]:result.kind==='confirmation'?[
-  [{text:'✅ Tasdiqlash',callback_data:`confirm:${result.proposal.token}`},{text:'✏️ Tahrirlash',callback_data:`edit:${result.proposal.token}`}],
-  [{text:'❌ Bekor qilish',callback_data:`deny:${result.proposal.token}`}]
+  [{text:'Tasdiqlash',style:'success',callback_data:`confirm:${result.proposal.token}`},{text:'Tahrirlash',callback_data:`edit:${result.proposal.token}`}],
+  [{text:'Bekor qilish',style:'danger',callback_data:`deny:${result.proposal.token}`}]
  ]:result.kind==='selection'?[
   ...result.selection.candidates.map((r,i)=>[{text:`${i+1}. ${r.customer} · ${r.device}`.slice(0,60),callback_data:`pick:${result.selection.token}:${i}`}]),
-  [{text:'❌ Bekor qilish',callback_data:`deny:${result.selection.token}`}]
+  [{text:'Bekor qilish',style:'danger',callback_data:`deny:${result.selection.token}`}]
  ]:null;
  return {text:result.reply.slice(0,4000),...(buttons?{reply_markup:{inline_keyboard:buttons}}:{})};
 }

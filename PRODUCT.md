@@ -24,6 +24,8 @@ Barcode labels show product/variant, selling price and Code128 code. Old invento
 
 ## Staff bot
 
+The existing staff bot has persistent Ta’mirlash / Pul navigation. Each authenticated worker/chat keeps its own selected section. Pul has Sotuv / xizmat, Qarz daftar and Hisobot menu entries, but financial recording and reminders are not implemented yet. These entries must state that limitation rather than save repair records or imply successful money actions. Switching sections cancels outstanding voice drafts and clears repair working state so old buttons cannot execute across sections. /menu opens the section selector; /repair and /pul are shortcuts. No second bot token is needed. Money commands must not reach repair AI or transcription while Pul is selected.
+
 Authenticated staff text instructions execute directly without routine confirmations. Repair-bot voice instructions require transcript review with Uzbek Confirm, Edit and Cancel buttons before execution; edited transcripts must be reviewed again. Ask for missing details or ambiguous/stale identities. Maintain per-master access, transactional audit records, idempotency and original voice timestamps/transcripts across retries. Old issued buttons remain compatible. Software services were planned as service/customer/worker/price without device or payment status; do not claim they are implemented yet.
 
 ## Customer bot and retrieval

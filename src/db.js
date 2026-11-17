@@ -1,3 +1,4 @@
+import {setupBotMenu} from './bot-menu.js';
 import 'dotenv/config';
 import { createClient } from '@libsql/client';
 export function database(env = process.env) {
@@ -5,6 +6,7 @@ export function database(env = process.env) {
   return createClient({url: env.DATABASE_URL, authToken: env.DATABASE_TOKEN || env.database_token});
 }
 export async function setup(db) {
+  await setupBotMenu(db);
   await db.execute(`CREATE TABLE IF NOT EXISTS speech_jobs (
     request_key TEXT PRIMARY KEY, provider TEXT NOT NULL, job_id TEXT NOT NULL
   )`);
