@@ -48,7 +48,7 @@ function where(plan,masterId){
  return {sql:clauses.join(' AND '),args};
 }
 export function commandService({db,parse,now=()=>Date.now()}) {
- return async({text,requestId,masterId,conversationId=null,commandTime=null,receivedBy=null,receivedByName=null})=>{
+ return async({text,requestId,masterId,conversationId=null,commandTime=null,receivedBy=null,receivedByName=null,previewOnly=false,preparedPlan=null,expectedRevision=null})=>{
   const hash=createHash('sha256').update(conversationId?JSON.stringify({text,conversationId}):text).digest('hex');
   const previous=await db.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,requestId]});
   if(previous.rows.length){if(previous.rows[0].input_hash!==hash)throw new Error('REQUEST_CONFLICT');return JSON.parse(previous.rows[0].result_json);}
@@ -69,12 +69,19 @@ export function commandService({db,parse,now=()=>Date.now()}) {
   const cancel=answer==='no' && Boolean(state.confirmation||state.selection||state.pending);
   const edit=button?.[1]==='edit' && validButton;
   const bypass=reset||Boolean(button)||handleConfirmation||handleSelection||cancel;
-  let plan=bypass?{...Object.fromEntries(Object.keys(planSchema.shape).map(k=>[k,null])),action:'clarify'}:planSchema.parse(await parse(text,{state,timing}));
+  let plan=bypass?{...Object.fromEntries(Object.keys(planSchema.shape).map(k=>[k,null])),action:'clarify'}:planSchema.parse(preparedPlan||await parse(text,{state,timing}));
   if(plan.memory?.topic==='continue' && state.pending?.action===plan.action){
    const inherited=state.pending.fields;
    plan={...plan,...Object.fromEntries(Object.entries(inherited).filter(([k])=>plan[k]==null))};
   }
   if(plan.start_date&&plan.end_date&&plan.start_date>plan.end_date)throw new Error('INVALID_DATE_RANGE');
+  if(previewOnly){
+   const fields=[['Mijoz',plan.customer],['Uskuna',plan.device],['Ish',plan.work],['Narx',plan.price_uzs==null?null:new Intl.NumberFormat('uz-UZ').format(plan.price_uzs)+' UZS'],['Tayyor sanasi',plan.due_date],['Usta',plan.technician],['Holat',plan.status?labels[plan.status]:null],['Davr boshi',plan.start_date],['Davr oxiri',plan.end_date]];
+   const title={create:'Yangi ta’mirlash',update:'Buyurtmani yangilash',list:'Buyurtmalarni qidirish',analytics:'Ta’mirlash hisoboti',clarify:'Aniqlashtirish'}[plan.action];
+   return {plan,revision:Number(memory?.revision||0),reply:[title,...fields.filter(([,value])=>value!=null).map(([label,value])=>`${label}: ${value}`),...(plan.question?[plan.question]:[]),'\nHali amal bajarilmadi. Tasdiqlaysizmi?'].join('\n')};
+  }
+  if(expectedRevision!=null&&Number(memory?.revision||0)!==expectedRevision)return {kind:'expired_button',reply:'Suhbatdagi ma’lumot o‘zgargan. Buyruqni qayta yuboring.'};
+
   const tx=await db.transaction('write');
   try {
    const prior=await tx.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,requestId]});

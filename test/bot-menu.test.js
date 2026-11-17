@@ -14,12 +14,12 @@ test('menu persists worker scope, invalidates pending drafts, and does not route
   const send=text=>run({...base,requestId:String(++id),text});
   const start=await send('/start');assert.equal(start.section,'menu');assert.equal(start.payload.reply_markup.keyboard[0][1].text,'Pul');
   assert.equal((await send('Pul')).section,'money');assert.equal((await send('Qarz daftar')).section,'debts');
-  assert.match((await send('Bekzod 100 ming qarz')).payload.text,/hali ishga tushirilmagan/);
+  assert.equal((await send('Bekzod 100 ming qarz')).payload,null);
   assert.equal((await botMenuService({db})({...base,requestId:'restart',text:'test'})).section,'debts');
   assert.equal((await run({masterId:'other',conversationId:'chat',requestId:'other',text:'test'})).payload,null);
   assert.equal((await send('Bosh menyu')).section,'menu');assert.equal((await send('Ta’mirlash')).payload.reply_markup.keyboard[0][0].text,'Pul');
   assert.equal((await send('Hisobot')).payload,null);
-  const token=crypto.randomUUID();await db.execute({sql:'INSERT INTO voice_drafts VALUES(?,?,?,?,?,?)',args:['owner','chat',token,'test','pending',Date.now()]});
+  const token=crypto.randomUUID();await db.execute({sql:'INSERT INTO voice_drafts(master_id,conversation_id,token,transcript,status,created_at) VALUES(?,?,?,?,?,?)',args:['owner','chat',token,'test','pending',Date.now()]});
   await db.execute({sql:'INSERT INTO conversation_state VALUES(?,?,?,?)',args:['owner','chat','{"phase":"confirmation"}',1]});
   const transition={...base,requestId:'switch',text:'Pul'};await run(transition);
   assert.equal((await db.execute('SELECT status FROM voice_drafts')).rows[0].status,'cancelled');assert.equal((await db.execute('SELECT * FROM conversation_state')).rows.length,0);

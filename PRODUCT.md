@@ -24,9 +24,14 @@ Barcode labels show product/variant, selling price and Code128 code. Old invento
 
 ## Staff bot
 
-The existing staff bot has persistent Ta’mirlash / Pul navigation. Each authenticated worker/chat keeps its own selected section. Pul has Sotuv / xizmat, Qarz daftar and Hisobot menu entries, but financial recording and reminders are not implemented yet. These entries must state that limitation rather than save repair records or imply successful money actions. Switching sections cancels outstanding voice drafts and clears repair working state so old buttons cannot execute across sections. /menu opens the section selector; /repair and /pul are shortcuts. No second bot token is needed. Money commands must not reach repair AI or transcription while Pul is selected.
+The staff bot has persistent Ta’mirlash / Pul navigation with separate conversation state. Pul supports ledger-only product/service sales, explicit split cash/card/transfer payments in UZS/USD, trusted-customer debts and partial repayments, provider financing and actual provider receipts. It does not update stock or sync BILLZ. A partially paid sale is itself the debt; never duplicate it as a standalone debt. Provider-financed principal is not customer debt; provider payout remains separate from approval. Provider percentages/type are explicit, owner-managed and snapshotted on sale. The stated sale price is authoritative; markup is not silently added again.
 
-Authenticated staff text instructions execute directly without routine confirmations. Repair-bot voice instructions require transcript review with Uzbek Confirm, Edit and Cancel buttons before execution; edited transcripts must be reviewed again. Ask for missing details or ambiguous/stale identities. Maintain per-master access, transactional audit records, idempotency and original voice timestamps/transcripts across retries. Old issued buttons remain compatible. Software services were planned as service/customer/worker/price without device or payment status; do not claim they are implemented yet.
+Every Pul write requires structured data review and confirmation. Optional Telegram sale photo can be attached/replaced before confirmation. Raw transcripts are not displayed. Editing a draft requires a new confirmation token. Every saved create/edit/soft-delete/restore appends before/after data and the authenticated Telegram worker to immutable history in the same transaction. No physical deletion of financial records is permitted. Deleting a parent with active payments is blocked. Staff see their own records and relevant repayments; the owner sees all and can collect another worker's debt without changing seller attribution. Sales and money collected are reported separately, grouped by worker/method/currency. Queries and daily reports use Asia/Tashkent dates. Pul is a separate ledger from the existing inventory checkout; entering the same sale in both is not synchronized.
+
+Daily cron runs at 21:00 Asia/Tashkent (16:00 UTC) and sends the owner a daily report with due/overdue debts; responsible workers receive their own debt reminders. Optional reminder dates snooze the next reminder. Settled/deleted debts do not generate reminders. Notification claims prevent automatic duplicates; uncertain sends require manual investigation. Owner IDs derive from PUL_OWNER_USER_IDS/PUL_OWNER_CHAT_ID or SHOP_ADMIN_CHAT_ID, falling back to the first Telegram master named owner. No customer messages are sent. /menu opens the selector; /repair and /pul switch sections and invalidate pending actions. Telegram typing indicators refresh while working and pressed buttons temporarily show Bajarilmoqda…; failures restore controls.
+
+
+Authenticated staff text instructions execute directly without routine confirmations. Repair-bot voice instructions require structured field review with Uzbek Confirm, Edit and Cancel buttons before execution; edited commands must be reviewed again. Ask for missing details or ambiguous/stale identities. Maintain per-master access, transactional audit records, idempotency and original voice timestamps/transcripts across retries. Old issued buttons remain compatible. Software services were planned as service/customer/worker/price without device or payment status; do not claim they are implemented yet.
 
 ## Customer bot and retrieval
 
@@ -42,7 +47,7 @@ Owner-only operations page shows request/stage traces, latency, failures and ope
 
 ## Explicit exclusions
 
-No buyer accounts, public checkout, payment collection, payment status, money-flow management, expenses, profit/margin accounting, refunds, stock reservations, transfers, supplier orders or exports. Purchase price is required storage, not authorization to add accounting workflows.
+No buyer accounts, public checkout, actual payment processing, phone purchases/trade-ins, expenses, profit/margin accounting, refunds, stock reservations, transfers, supplier orders or exports. Pul records incoming payments and debts; it does not move money. Purchase price is required storage, not authorization to add accounting workflows.
 
 ## Technology and environments
 

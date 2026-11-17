@@ -1,9 +1,11 @@
 import {randomUUID} from 'node:crypto';
 import {observe,withTraceContext,recordOperationalEvent} from '../shared/observability.js';
-import {database} from './db.js';
-import {telegramButtonCleanup} from './telegram-ui.js';
+import {database,setup} from './db.js';
+import {telegramButtonCleanup,telegramButtonProgress} from './telegram-ui.js';
 import {createApp} from './app.js';
 import {commandService,geminiParser} from './commands.js';
+import {pulService} from './pul.js';
+import {pulParser} from './pul-parser.js';
 import {botMenuService} from './bot-menu.js';
 import {telegramWebhook} from './telegram.js';
 import {telegramDelivery,telegramSender} from './delivery.js';
@@ -19,12 +21,17 @@ export function createRuntimeApp(env=process.env) {
   const clearButtons=db&&env.TELEGRAM_BOT_TOKEN?telegramButtonCleanup({db,token:env.TELEGRAM_BOT_TOKEN}):null;
   const speechProvider=env.SPEECH_PROVIDER||((env.AISHA_API||env.AISHA_API_KEY||env.VOICELAB_API_KEY)?'aisha':'groq');
   const transcriber=speechProvider==='groq'?groqTranscriber(env):aishaTranscriber(env,{db});
-  const runVoice=db&&runCommand?voiceService({db,transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args)),runCommand}):null;
+  const runVoice=db&&runCommand?voiceService({db,previewCommand:input=>runCommand({...input,previewOnly:true}),transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args)),runCommand}):null;
   const clearVoice=async({masterId,conversationId})=>{await db.execute({sql:"UPDATE voice_drafts SET status='cancelled' WHERE master_id=? AND conversation_id=? AND status IN ('pending','editing')",args:[masterId,conversationId]});};
   const answerCallback=async id=>{await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({callback_query_id:id}),signal:AbortSignal.timeout(3000)});};
   const runMenu=db?botMenuService({db}):null;
-  const staffHandler=telegramWebhook({env,runMenu,runCommand:deliver?runCommand:null,deliver,answerCallback,runVoice,clearVoice,clearButtons});
+  const runPul=db&&env.GOOGLE_GENERATIVE_AI_API_KEY?pulService({db,env,parse:(...args)=>observe({db,bot:'staff',operation:'pul_plan'},()=>pulParser(env)(...args)),transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args))}):null;
+  const typing=async chatId=>{await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendChatAction`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chatId,action:'typing'}),signal:AbortSignal.timeout(2000)});};
+  const buttonProgress=env.TELEGRAM_BOT_TOKEN?telegramButtonProgress({token:env.TELEGRAM_BOT_TOKEN}):null;
+  const staffHandler=telegramWebhook({env,runMenu,runPul,typing,buttonProgress,runCommand:deliver?runCommand:null,deliver,answerCallback,runVoice,clearVoice,clearButtons});
+  let schemaReady;
   const tracedHandler=async(req,res)=>{
+    if(db){try{await (schemaReady??=setup(db));}catch(error){schemaReady=null;throw error;}}
     const traceId=randomUUID(),start=Date.now();res.setHeader('X-Request-ID',traceId);
     return withTraceContext(traceId,async()=>{try{return await staffHandler(req,res);}finally{if(db)await recordOperationalEvent({db,bot:'staff',operation:'staff.webhook',traceId,status:res.statusCode>=400?'error':'ok',errorCode:res.statusCode>=500?'operation_failed':res.statusCode>=400?'unauthorized':undefined,durationMs:Date.now()-start});}});
   };

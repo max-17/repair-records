@@ -39,8 +39,8 @@ export async function recognizeAudio(env,audio,recognize=transcribe){
   if(text.length<2||text.length>3000)throw new SpeechInputError('Ovozdan aniq matn olinmadi yoki matn juda uzun. Qisqaroq qayta yozing.');
   return text;
 }
-function reviewTranscript(draft){return {kind:'transcript',draft:{token:draft.token},reply:`🎙 Eshitilgan matn:\n${draft.transcript}\n\nTo‘g‘rimi? Tasdiqlasangiz, buyruq bajariladi. Hali hech qanday amal bajarilmadi.`};}
-export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()}){
+function reviewTranscript(draft){const review=draft.review_json?JSON.parse(draft.review_json):null;return {kind:'transcript',draft:{token:draft.token},reply:review?.reply||'Buyruq tayyor. Hali amal bajarilmadi. Tasdiqlaysizmi?'};}
+export function voiceService({db,transcribeVoice,runCommand,previewCommand,now=()=>Date.now()}){
  return async({masterId,conversationId,requestId,voice,text,receivedAt=null,receivedBy=null,receivedByName=null})=>{
   const hash=createHash('sha256').update(JSON.stringify({conversationId,voice:voice?.file_id||null,text:text??null})).digest('hex');
   const cached=(await db.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,`speech:${requestId}`]})).rows[0];
@@ -69,7 +69,8 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
    }
    if(!previous&&!result)transcript=(await cacheStage(`speech-transcript:${requestId}`,{transcript:transcript.trim()})).transcript;
    if(!result){
-    newDraft={token:received.token||randomUUID(),transcript,status:'pending',created_at:received.created_at};
+    const review=previewCommand?await cacheStage(`speech-review:${requestId}`,await previewCommand({text:transcript,requestId:`voice-preview:${requestId}`,masterId,conversationId,commandTime:received.created_at,receivedBy,receivedByName})):null;
+    newDraft={token:received.token||randomUUID(),transcript,status:'pending',created_at:received.created_at,review_json:review?JSON.stringify(review):null};
     result=reviewTranscript(newDraft);
    }
   }else if(text==='/cancel' && draft && ['pending','editing'].includes(draft.status)){
@@ -77,7 +78,7 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
   }else if(button){
    if(!draft||draft.token!==button[2]||!['pending','editing'].includes(draft.status)||now()-Number(draft.created_at)>15*60*1000)result={kind:'expired_button',reply:'Bu ovozli xabarning tugmasi eskirgan. Ovoz yoki matnni qayta yuboring.'};
    else if(button[1]==='voiceuse' && draft.status==='pending'){
-    result=await runCommand({text:draft.transcript,requestId:`voice-apply:${draft.token}`,masterId,conversationId,commandTime:Number(draft.created_at),receivedBy,receivedByName});newDraft={...draft,status:'applied'};
+    result=await runCommand({text:draft.transcript,requestId:`voice-apply:${draft.token}`,masterId,conversationId,commandTime:Number(draft.created_at),receivedBy,receivedByName,...(draft.review_json?{preparedPlan:JSON.parse(draft.review_json).plan,expectedRevision:JSON.parse(draft.review_json).revision}:{})});newDraft={...draft,status:'applied'};
    }else if(button[1]==='voiceedit'){
     newDraft={...draft,status:'editing'};result={kind:'transcript_edit',reply:'✏️ To‘g‘rilangan matnni to‘liq yozing. Yuborgan matningiz tasdiqlash uchun qayta ko‘rsatiladi. /cancel — bekor qilish.'};
    }else if(button[1]==='voicedeny'){
@@ -86,10 +87,10 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
   }else if(draft?.status==='editing'&&text && !text.startsWith('/')){
    if(text.length>3000)result={kind:'speech_error',reply:'Matnni 3000 belgigacha yozing.'};
    else if(text.trim().length<2){result={kind:'speech_error',reply:'To‘g‘rilangan matnni to‘liq yozing.'};}
-   else{newDraft={...draft,token:randomUUID(),transcript:text.trim(),status:'pending'};result=reviewTranscript(newDraft);}
+   else{const review=previewCommand?await previewCommand({text:text.trim(),requestId:`voice-edit-preview:${requestId}`,masterId,conversationId,commandTime:Number(draft.created_at),receivedBy,receivedByName}):null;newDraft={...draft,token:randomUUID(),transcript:text.trim(),status:'pending',review_json:review?JSON.stringify(review):null};result=reviewTranscript(newDraft);}
   }else return null;
   return writeTransaction(db,async tx=>{
-   if(newDraft)await tx.execute({sql:'INSERT INTO voice_drafts(master_id,conversation_id,token,transcript,status,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(master_id,conversation_id) DO UPDATE SET token=excluded.token,transcript=excluded.transcript,status=excluded.status,created_at=excluded.created_at',args:[masterId,conversationId,newDraft.token,newDraft.transcript,newDraft.status,newDraft.created_at]});
+   if(newDraft)await tx.execute({sql:'INSERT INTO voice_drafts(master_id,conversation_id,token,transcript,status,created_at,review_json) VALUES(?,?,?,?,?,?,?) ON CONFLICT(master_id,conversation_id) DO UPDATE SET token=excluded.token,transcript=excluded.transcript,status=excluded.status,created_at=excluded.created_at,review_json=excluded.review_json',args:[masterId,conversationId,newDraft.token,newDraft.transcript,newDraft.status,newDraft.created_at,newDraft.review_json||null]});
    const previous=(await tx.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,`speech:${requestId}`]})).rows[0];
    if(previous){if(previous.input_hash!==hash)throw new Error('REQUEST_CONFLICT');return JSON.parse(previous.result_json);}
    await tx.execute({sql:'INSERT INTO command_requests(master_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[masterId,`speech:${requestId}`,hash,JSON.stringify(result)]});

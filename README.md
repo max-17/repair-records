@@ -148,7 +148,7 @@ Aisha/VoiceLab is the selected speech provider. Set `AISHA_API` in Vercel Produc
 
 An allowlisted user sends a Telegram **voice note** of up to 120 seconds and 10 MB. The server fetches Telegram bytes and uploads them to the selected provider; it never sends the Telegram download URL containing the bot token. No audio bytes are stored in Turso or on disk. The provider receives the audio; transcripts, provider job IDs and review results are persisted for retries.
 
-Staff voice is transcribed and shown with Confirm, Edit and Cancel buttons before execution. Edited transcripts require confirmation again. The original message timestamp and transcript are saved for safe retries; unclear commands ask a focused question. Legacy transcript buttons remain compatible.
+Staff voice is transcribed and shown as structured fields with Confirm, Edit and Cancel buttons before execution. Edited transcripts require confirmation again. The original message timestamp and transcript are saved for safe retries; unclear commands ask a focused question. Legacy transcript buttons remain compatible.
 
 VoiceLab returns asynchronous jobs even for short recordings. The server immediately checks the first result, respects Retry-After for pending jobs, and spends at most about 20 seconds in a processing attempt. Jobs that remain pending resume on webhook retry. Stable UUID idempotency keys and persisted `speech_jobs` IDs prevent reuploading on retries. Logs contain provider upload/poll timing, not keys or spoken content.
 
@@ -168,7 +168,7 @@ The Aisha command persists only its provider job ID to resume polling; the Groq 
 Set `GROQ_API_KEY` with `SPEECH_PROVIDER=groq`. Optional settings: `GROQ_WHISPER_MODEL=whisper-large-v3` (default) or `whisper-large-v3-turbo`, and `GROQ_SPEECH_LANGUAGE=uz` (default; `auto` enables language detection).
 
 
-The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Staff voice requires transcript confirmation before execution; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.
+The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Staff voice requires structured-field confirmation before execution; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.
 
 
 After a button action completes, the bot removes the clicked message’s inline keyboard. Completed text actions also clear older tracked keyboards in that conversation. New response buttons remain available, and delayed retries do not clear newer messages. Explicit cancellation replies use the exact text `Amal bekor qilindi.`; expired proposals keep their explanatory error. Cleanup failures can retry without repeating the saved command or reply.
@@ -231,3 +231,38 @@ service is needed. Google model/account quotas apply.
 alerts. Both bots use shared lease, delivery acknowledgement and error-classification
 primitives. Telemetry excludes message text, prompts, keys and customer IDs and
 is bounded to seven days/10,000 events.
+
+## Pul: sales, services and qarz daftar
+
+Use the existing **staff** bot: `/pul` or the Pul menu. `/repair` returns to repairs. No second bot or AI key is required. Pul automatically creates its tables on first use and uses the existing Turso credentials. It is a ledger, not a BILLZ integration or inventory checkout: recording a Pul sale does not deduct stock, and entering it separately in the web checkout is not synchronized.
+
+Examples (Uzbek text or voice):
+
+- `Bekzodga Redmi Note 9 ni 500 mingga sotdim, 200 ming naqd berdi, qolganini ertaga beradi.`
+- `Azizga Telegram o‘rnatib berdim, 50 ming so‘m kartaga tashladi.`
+- `Bekzod 300 ming qarz, telefon raqami ..., muddati 2026-11-20.`
+- `Bekzodning qarzlarini ko‘rsat.`
+- `ID <shown ID> qarzidan 100 ming naqd berdi.`
+- `ID <shown ID> eslatmasini ertaga qo‘y.`
+- `Bugungi hisobot.` / `ID <shown ID> tarixini ko‘rsat.`
+- `ID <shown ID> yozuvini o‘chir, sababi: takroriy yozuv.` / `ID <shown ID> ni tikla, sababi: tekshirildi.`
+
+Every write shows interpreted fields with green **Tasdiqlash**, neutral **Tahrirlash**, and red **Bekor qilish** buttons. Sale reviews also show blue **Rasm qo‘shish**; send the photo and review again, or confirm without a photo. Telegram file IDs are kept privately with the ledger; viewed sale photos are sent through the staff bot. Pending drafts are invalidated when switching sections. Repairs also show interpreted fields instead of raw transcripts, and execute the reviewed plan without parsing it again. Typing and button-loading indicators show work in progress.
+
+The owner can create/update providers, e.g. `Uzum Nasiya provayderini qo‘sh: komissiya 10 foiz.` Set the final agreed sale price, upfront payments and financed amount explicitly. Provider fee/rate is snapshotted. A provider agreement is not a received payment: record the actual vendor transfer with its sale ID. Customer repayments to that vendor are outside the shop ledger. Customer debt owed directly to the shop supports partial repayments. Never count repayments as new sales.
+
+### Owner, daily reports and reminders
+
+Set `PUL_OWNER_USER_IDS` to comma-separated owner Telegram user IDs. `PUL_OWNER_CHAT_ID` optionally sets the owner report chat. Existing `SHOP_ADMIN_CHAT_ID` or the first `TELEGRAM_MASTERS` entry named `owner` is a fallback. The owner must start the **staff bot** so it can send reports. Workers see their own ledger; owners can view all workers. Every write is attributed to the actual authenticated Telegram user, even when several workers share a repair master ID.
+
+The existing protected `/api/telegram/cron` now also sends Pul reports/reminders. With the checked-in Vercel daily schedule, it runs at **21:00 Asia/Tashkent**. Keep `CRON_SECRET` configured. Owner gets all-worker totals and debt reminders; registered workers get their own due-debt reminders. Due/reminder dates are optional. Settled or soft-deleted debts are excluded. Reports keep currencies separate and distinguish sales, customer receipts, debt repayments and provider receipts. Delivery is claimed once per recipient/day; failed/uncertain outcomes remain in `pul_notifications` and are not blindly resent.
+
+### Data and history
+
+- `pul_records`: sales, standalone debts, payments and provider settings. Payments reference a sale/debt; a sale can have many payments. Stored amounts are integer minor units (100 per UZS/USD major unit).
+- `pul_history`: append-only create/edit/delete/restore events with actor, before/after JSON, command ID and optional reason. SQL triggers reject modification/deletion of history and physical deletion of records.
+- `pul_drafts`, `pul_requests`: confirmation state and retry-safe results.
+- `pul_workers`: authenticated worker names and private chat destinations.
+- `pul_notifications`: persisted daily notification claims and outcomes.
+
+Sale debt is computed from agreed price minus customer payments and provider-financed principal. Standalone notebook debts are separate obligations. Deletions are soft and require a reason; records with active linked payments cannot be deleted until those payments are explicitly reversed via soft deletion. Restoring or editing payments rechecks the current balance. No purchasing, trade-in, bank integration, profit accounting or payment execution is implemented.

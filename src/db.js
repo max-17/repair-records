@@ -15,6 +15,8 @@ export async function setup(db) {
     transcript TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
     PRIMARY KEY(master_id,conversation_id)
   )`);
+  const voiceColumns=(await db.execute('PRAGMA table_info(voice_drafts)')).rows.map(row=>row.name);
+  if(!voiceColumns.includes('review_json'))await db.execute('ALTER TABLE voice_drafts ADD COLUMN review_json TEXT');
   await db.execute(`CREATE TABLE IF NOT EXISTS repair_events (
     id TEXT PRIMARY KEY, master_id TEXT NOT NULL, repair_id TEXT NOT NULL,
     request_id TEXT NOT NULL, actor_id TEXT NOT NULL, event_type TEXT NOT NULL,

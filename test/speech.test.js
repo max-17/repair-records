@@ -68,3 +68,11 @@ test('recognition failure never executes and review keeps original voice timesta
  const review=await run({...base,requestId:'1',voice,receivedAt:sent});assert.equal(calls,0);
  await run({...base,requestId:'2',text:`/voiceuse ${review.draft.token}`});assert.equal(received.commandTime,sent);
 }));
+test('repair voice review shows extracted fields and executes the reviewed plan without reparsing',()=>withDb(async db=>{
+ let parses=0;const runCommand=commandService({db,parse:async()=>{parses++;return {...blank,action:'create',customer:'Bekzod aka',device:'Redmi Note 9',work:'Ekran',price_uzs:500000,due_date:'2026-11-18'};}});
+ const voiceRun=voiceService({db,previewCommand:input=>runCommand({...input,previewOnly:true}),transcribeVoice:async()=> 'raw transcript should not be shown',runCommand});
+ const base={masterId:'owner',conversationId:'chat',receivedBy:'7',receivedByName:'Aziz'};
+ const reviewed=await voiceRun({...base,requestId:'voice',voice});assert.match(reviewed.reply,/Mijoz: Bekzod aka/);assert.match(reviewed.reply,/Uskuna: Redmi Note 9/);assert.match(reviewed.reply,/Narx:.*UZS/);assert.match(reviewed.reply,/Tayyor sanasi: 2026-11-18/);assert.ok(!reviewed.reply.includes('raw transcript'));
+ assert.equal((await db.execute('SELECT * FROM repair_jobs')).rows.length,0);
+ const saved=await voiceRun({...base,requestId:'confirm',text:`/voiceuse ${reviewed.draft.token}`});assert.equal(saved.kind,'created');assert.equal(parses,1);assert.equal(saved.repair.price_uzs,500000);
+}));

@@ -16,3 +16,18 @@ export function telegramButtonCleanup({db,token,fetcher=fetch}){
   }
  };
 }
+
+// Telegram has no native disabled/loading property on ordinary inline buttons.
+// Replace the keyboard temporarily, then remove it on success or restore on failure.
+export function telegramButtonProgress({token,fetcher=fetch}){
+ return async callback=>{
+  const message=callback?.message;if(!message?.message_id)return async()=>{};
+  const edit=async reply_markup=>{
+   const response=await fetcher(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:message.chat.id,message_id:message.message_id,reply_markup}),signal:AbortSignal.timeout(3000)});
+   const result=await response.json();if(!response.ok||!result.ok)throw new Error('BUTTON_PROGRESS_FAILED');
+  };
+  const original=message.reply_markup||{inline_keyboard:[]};
+  await edit({inline_keyboard:[[{text:'Bajarilmoqda…',callback_data:callback.data}]]});
+  return ()=>edit(original);
+ };
+}
