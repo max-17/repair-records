@@ -5,7 +5,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createClient} from '@libsql/client';
 import {setup} from '../src/db.js';
-import {botMenuService} from '../src/bot-menu.js';
+import {botMenuService,sectionButtons} from '../src/bot-menu.js';
 import {telegramWebhook} from '../src/telegram.js';
 async function withDb(fn){const directory=await mkdtemp(join(tmpdir(),'bot-commands-'));const db=createClient({url:`file:${join(directory,'test.db')}`});try{await setup(db);await fn(db);}finally{db.close();await rm(directory,{recursive:true,force:true});}}
 test('slash help removes old keyboards and does not consume ordinary Pul requests or select subsections',()=>withDb(async db=>{
@@ -39,3 +39,13 @@ test('authorized commands bypass repair AI and Pul receives every request; unaut
  assert.match((await send('/pul')).text,/Pul bo‘limi/);await send('Qarz daftar');await send('Hisobot');await send(undefined,123,{file_id:'voice'});assert.equal(pul.length,3);assert.equal(pul[0].text,'Qarz daftar');assert.equal(pul[1].text,'Hisobot');assert.equal(pul[2].voice.file_id,'voice');assert.equal(commands,0);assert.equal(voices,0);
  await send('/tamirlash');await send('Bekzod telefon');assert.equal(commands,1);assert.equal(voices,1);
 }));
+
+test('section links are inline chat buttons without persistent reply-keyboard fields',()=>{
+ const both=sectionButtons();assert.deepEqual(both.inline_keyboard.map(row=>row[0].callback_data),['section:pul','section:tamirlash']);
+ assert.equal(both.inline_keyboard[0][0].text,'Pul bo‘limini ochish');assert.equal(both.inline_keyboard[0][0].style,'primary');
+ assert.deepEqual(sectionButtons('pul').inline_keyboard.map(row=>row[0].callback_data),['section:pul']);
+ assert.deepEqual(sectionButtons('tamirlash').inline_keyboard.map(row=>row[0].callback_data),['section:tamirlash']);
+ assert.deepEqual(sectionButtons('money'),sectionButtons('pul'));assert.deepEqual(sectionButtons('repair'),sectionButtons('tamirlash'));
+ assert.ok(!('remove_keyboard' in both));assert.ok(!('keyboard' in both));
+ both.inline_keyboard[0][0].text='Changed';assert.equal(sectionButtons('pul').inline_keyboard[0][0].text,'Pul bo‘limini ochish');
+});

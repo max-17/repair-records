@@ -1,6 +1,13 @@
 import {setupPul} from './pul-db.js';
 import {writeTransaction} from './audit.js';
 const removeKeyboard={remove_keyboard:true};
+export function sectionButtons(section='both'){
+ const pul={text:'Pul bo‘limini ochish',style:'primary',callback_data:'section:pul'};
+ const repair={text:'Ta’mirlash bo‘limini ochish',style:'primary',callback_data:'section:tamirlash'};
+ const buttons=['pul','money'].includes(section)?[pul]:['tamirlash','repair'].includes(section)?[repair]:[pul,repair];
+ return {inline_keyboard:buttons.map(button=>[button])};
+}
+
 const commandSections={pul:'money',tamirlash:'repair',repair:'repair'};
 const normalizeSection=section=>['money','sales','debts','reports'].includes(section)?'money':'repair';
 export async function setupBotMenu(db){

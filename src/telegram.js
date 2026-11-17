@@ -1,3 +1,4 @@
+import {sectionButtons} from './bot-menu.js';
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
 export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu,runPul,typing,buttonProgress}) {
@@ -10,10 +11,11 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
   const update=req.body;const callback=update?.callback_query;
   let msg=update?.message;
   if(callback){
+   const section=/^section:(pul|tamirlash)$/.exec(callback.data||'');
    const pulMatch=/^pul_(confirm|edit|cancel|photo|showphoto):([0-9a-f-]{36})$/.exec(callback.data||'');
    const match=/^(confirm|deny|edit|pick|voiceuse|voiceedit|voicedeny):([0-9a-f-]{36})(?::(\d{1,2}))?$/.exec(callback.data||'');
-   if(!match&&!pulMatch)return res.json({ok:true});
-   msg={...callback.message,from:callback.from,text:pulMatch?`/pul_${pulMatch[1]} ${pulMatch[2]}`:`/${match[1]} ${match[2]}${match[3]===undefined?'':' '+match[3]}`};
+   if(!match&&!pulMatch&&!section)return res.json({ok:true});
+   msg={...callback.message,from:callback.from,text:section?`/${section[1]}`:pulMatch?`/pul_${pulMatch[1]} ${pulMatch[2]}`:`/${match[1]} ${match[2]}${match[3]===undefined?'':' '+match[3]}`};
   }
   if(!Number.isSafeInteger(update?.update_id)||!msg||msg.chat?.type!=='private'||!Number.isSafeInteger(msg.chat.id)||!Number.isSafeInteger(msg.from?.id)||msg.from.is_bot)return res.json({ok:true});
   let masters;
@@ -40,7 +42,7 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
       if(!runPul)return {text:'Pul xizmati sozlanmagan.'};
       return runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:msg.text,voice:msg.voice,photo:msg.photo?.at(-1)?.file_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
      }
-     if(callback?.data.startsWith('pul_'))return {text:'Bu tugma Pul bo‘limiga tegishli. Avval Pul bo‘limiga o‘ting.'};
+     if(callback?.data.startsWith('pul_'))return {text:'Bu tugma Pul bo‘limiga tegishli.',reply_markup:sectionButtons('pul')};
     }
     if(runVoice){
      const speech=await runVoice({masterId,conversationId,requestId:`telegram:${update.update_id}`,voice:msg.voice,text:msg.text,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});

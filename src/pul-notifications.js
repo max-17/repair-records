@@ -1,3 +1,4 @@
+import {sectionButtons} from './bot-menu.js';
 import {createHash} from 'node:crypto';
 import {setupPul,pulRows} from './pul-db.js';
 import {remaining,money,reportText} from './pul-domain.js';
@@ -18,8 +19,8 @@ export async function pulDailyNotifications({db,env=process.env,send,now=()=>Dat
   // Owner receives daily report; workers receive only their due-debt reminders.
   if(!recipient.owner&&!due.length)continue;
   const reminder=due.length?`Qarz eslatmalari (${due.length} ta):\n`+due.slice(0,12).map(r=>`${r.data.customer||'Mijoz'} · ${money(remaining(r,records),r.data.currency)} · muddat ${r.data.dueDate||r.data.reminderDate}\nID: ${r.id}`).join('\n\n'):'Bugun eslatiladigan qarz yo‘q.';
-  const text=(recipient.owner?reportText(records,{start:today,end:today,userNames:names,title:'Kunlik Pul hisoboti'})+'\n\n':'')+reminder+'\n\nTo‘lov yoki eslatma sanasini o‘zgartirish: /pul. Yozuv ID sini buyruqqa qo‘shing.';
-  const payload={chat_id:chatId,text:text.slice(0,3900)},id=createHash('sha256').update(`${shopId}:${today}:${chatId}`).digest('hex');
+  const text=(recipient.owner?reportText(records,{start:today,end:today,userNames:names,title:'Kunlik Pul hisoboti'})+'\n\n':'')+reminder+'\n\nTo‘lov yoki eslatma sanasini o‘zgartirish uchun Pul bo‘limini oching. Yozuv ID sini buyruqqa qo‘shing.';
+  const payload={chat_id:chatId,text:text.slice(0,3900),reply_markup:sectionButtons('pul')},id=createHash('sha256').update(`${shopId}:${today}:${chatId}`).digest('hex');
   await db.execute({sql:'INSERT INTO pul_notifications(id,shop_id,local_date,chat_id,payload_json) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING',args:[id,shopId,today,chatId,JSON.stringify(payload)]});
   const claim=await db.execute({sql:"UPDATE pul_notifications SET status='sending' WHERE id=? AND status='pending' RETURNING payload_json",args:[id]});
   if(!claim.rows.length)continue;
