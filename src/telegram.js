@@ -33,7 +33,7 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
     if(clearVoice)await clearVoice({masterId,conversationId,receivedBy,receivedByName});
     if(msg.text.length>3000)return {text:'Xabar juda uzun. 3000 belgigacha yozing.'};
     const result=await runCommand({text:['/start','/new'].includes(msg.text)?'/new':msg.text,requestId:`telegram:${update.update_id}`,masterId,conversationId,receivedBy,receivedByName});
-    if(msg.text==='/start')return {text:'Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Aniq buyruqlar darhol bajariladi; bir nechta buyurtma topilsa, tugmadan tanlang.\nYangi suhbat: /new. Ovozli xabarlar matnga aylantirilib, buyruq darhol bajariladi.'};
+    if(msg.text==='/start')return {text:'Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Aniq buyruqlar darhol bajariladi; bir nechta buyurtma topilsa, tugmadan tanlang.\nYangi suhbat: /new. Ovozli xabarlar matnga aylantiriladi. Matnni tekshirib, Tasdiqlash tugmasini bosing; Tahrirlash yoki Bekor qilish ham mumkin.'};
     return telegramPresentation(result);
    };
    if(deliver){

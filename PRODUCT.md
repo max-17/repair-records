@@ -24,7 +24,7 @@ Barcode labels show product/variant, selling price and Code128 code. Old invento
 
 ## Staff bot
 
-Authenticated staff text and voice instructions execute directly without routine confirmations or transcript review. Ask for missing details or ambiguous/stale identities. Maintain per-master access, transactional audit records, idempotency and original voice timestamps/transcripts across retries. Old issued buttons remain compatible. Software services were planned as service/customer/worker/price without device or payment status; do not claim they are implemented yet.
+Authenticated staff text instructions execute directly without routine confirmations. Repair-bot voice instructions require transcript review with Uzbek Confirm, Edit and Cancel buttons before execution; edited transcripts must be reviewed again. Ask for missing details or ambiguous/stale identities. Maintain per-master access, transactional audit records, idempotency and original voice timestamps/transcripts across retries. Old issued buttons remain compatible. Software services were planned as service/customer/worker/price without device or payment status; do not claim they are implemented yet.
 
 ## Customer bot and retrieval
 

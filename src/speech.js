@@ -1,6 +1,6 @@
 import {transcribe} from 'ai';
 import {createGroq} from '@ai-sdk/groq';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {writeTransaction} from './audit.js';
 import {aishaRecognizer,AishaInputError} from './aisha.js';
 const MAX_BYTES=10*1024*1024;
@@ -39,6 +39,7 @@ export async function recognizeAudio(env,audio,recognize=transcribe){
   if(text.length<2||text.length>3000)throw new SpeechInputError('Ovozdan aniq matn olinmadi yoki matn juda uzun. Qisqaroq qayta yozing.');
   return text;
 }
+function reviewTranscript(draft){return {kind:'transcript',draft:{token:draft.token},reply:`🎙 Eshitilgan matn:\n${draft.transcript}\n\nTo‘g‘rimi? Tasdiqlasangiz, buyruq bajariladi. Hali hech qanday amal bajarilmadi.`};}
 export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()}){
  return async({masterId,conversationId,requestId,voice,text,receivedAt=null,receivedBy=null,receivedByName=null})=>{
   const hash=createHash('sha256').update(JSON.stringify({conversationId,voice:voice?.file_id||null,text:text??null})).digest('hex');
@@ -48,14 +49,14 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
   const button=/^\/(voiceuse|voiceedit|voicedeny) ([0-9a-f-]{36})$/.exec(text||'');
   let result,newDraft;
   if(voice){
-   // Persist the original message time and transcript before executing. A failed
+   // Persist the original message time and transcript before review. A failed
    // command/delivery retry must neither shift relative dates nor re-upload audio.
    const cacheStage=(id,value)=>writeTransaction(db,async tx=>{
     const previous=(await tx.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,id]})).rows[0];
     if(previous){if(previous.input_hash!==hash)throw new Error('REQUEST_CONFLICT');return JSON.parse(previous.result_json);}
     await tx.execute({sql:'INSERT INTO command_requests(master_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[masterId,id,hash,JSON.stringify(value)]});return value;
    });
-   const received=await cacheStage(`speech-input:${requestId}`,{created_at:Number.isFinite(receivedAt)&&receivedAt>0&&receivedAt<=now()+300000?receivedAt:now()});
+   const received=await cacheStage(`speech-input:${requestId}`,{token:randomUUID(),created_at:Number.isFinite(receivedAt)&&receivedAt>0&&receivedAt<=now()+300000?receivedAt:now()});
    let transcript;
    const previous=(await db.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,`speech-transcript:${requestId}`]})).rows[0];
    if(previous){if(previous.input_hash!==hash)throw new Error('REQUEST_CONFLICT');transcript=JSON.parse(previous.result_json).transcript;}
@@ -68,8 +69,8 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
    }
    if(!previous&&!result)transcript=(await cacheStage(`speech-transcript:${requestId}`,{transcript:transcript.trim()})).transcript;
    if(!result){
-    result=await runCommand({text:transcript,requestId:`voice-apply:${requestId}`,masterId,conversationId,commandTime:received.created_at,receivedBy,receivedByName});
-    if(draft&&['pending','editing'].includes(draft.status))newDraft={...draft,status:'cancelled'};
+    newDraft={token:received.token||randomUUID(),transcript,status:'pending',created_at:received.created_at};
+    result=reviewTranscript(newDraft);
    }
   }else if(text==='/cancel' && draft && ['pending','editing'].includes(draft.status)){
    newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'Amal bekor qilindi.'};
@@ -78,13 +79,14 @@ export function voiceService({db,transcribeVoice,runCommand,now=()=>Date.now()})
    else if(button[1]==='voiceuse' && draft.status==='pending'){
     result=await runCommand({text:draft.transcript,requestId:`voice-apply:${draft.token}`,masterId,conversationId,commandTime:Number(draft.created_at),receivedBy,receivedByName});newDraft={...draft,status:'applied'};
    }else if(button[1]==='voiceedit'){
-    newDraft={...draft,status:'editing'};result={kind:'transcript_edit',reply:'✏️ To‘g‘rilangan matnni to‘liq yozing. Buyruq darhol bajariladi. /cancel — bekor qilish.'};
+    newDraft={...draft,status:'editing'};result={kind:'transcript_edit',reply:'✏️ To‘g‘rilangan matnni to‘liq yozing. Yuborgan matningiz tasdiqlash uchun qayta ko‘rsatiladi. /cancel — bekor qilish.'};
    }else if(button[1]==='voicedeny'){
     newDraft={...draft,status:'cancelled'};result={kind:'cancelled_transcript',reply:'Amal bekor qilindi.'};
    }else result={kind:'expired_button',reply:'Avval matnni to‘g‘rilab yuboring.'};
   }else if(draft?.status==='editing'&&text && !text.startsWith('/')){
    if(text.length>3000)result={kind:'speech_error',reply:'Matnni 3000 belgigacha yozing.'};
-   else{result=await runCommand({text:text.trim(),requestId:`voice-edit:${draft.token}:${requestId}`,masterId,conversationId,commandTime:Number(draft.created_at),receivedBy,receivedByName});newDraft={...draft,transcript:text.trim(),status:'applied'};}
+   else if(text.trim().length<2){result={kind:'speech_error',reply:'To‘g‘rilangan matnni to‘liq yozing.'};}
+   else{newDraft={...draft,token:randomUUID(),transcript:text.trim(),status:'pending'};result=reviewTranscript(newDraft);}
   }else return null;
   return writeTransaction(db,async tx=>{
    if(newDraft)await tx.execute({sql:'INSERT INTO voice_drafts(master_id,conversation_id,token,transcript,status,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(master_id,conversation_id) DO UPDATE SET token=excluded.token,transcript=excluded.transcript,status=excluded.status,created_at=excluded.created_at',args:[masterId,conversationId,newDraft.token,newDraft.transcript,newDraft.status,newDraft.created_at]});

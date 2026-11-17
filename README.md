@@ -148,7 +148,7 @@ Aisha/VoiceLab is the selected speech provider. Set `AISHA_API` in Vercel Produc
 
 An allowlisted user sends a Telegram **voice note** of up to 120 seconds and 10 MB. The server fetches Telegram bytes and uploads them to the selected provider; it never sends the Telegram download URL containing the bot token. No audio bytes are stored in Turso or on disk. The provider receives the audio; transcripts, provider job IDs and review results are persisted for retries.
 
-Staff voice is transcribed and executed directly. The original message timestamp and transcript are saved for safe retries; unclear commands ask a focused question. Legacy transcript buttons remain compatible.
+Staff voice is transcribed and shown with Confirm, Edit and Cancel buttons before execution. Edited transcripts require confirmation again. The original message timestamp and transcript are saved for safe retries; unclear commands ask a focused question. Legacy transcript buttons remain compatible.
 
 VoiceLab returns asynchronous jobs even for short recordings. The server immediately checks the first result, respects Retry-After for pending jobs, and spends at most about 20 seconds in a processing attempt. Jobs that remain pending resume on webhook retry. Stable UUID idempotency keys and persisted `speech_jobs` IDs prevent reuploading on retries. Logs contain provider upload/poll timing, not keys or spoken content.
 
@@ -168,7 +168,7 @@ The Aisha command persists only its provider job ID to resume polling; the Groq 
 Set `GROQ_API_KEY` with `SPEECH_PROVIDER=groq`. Optional settings: `GROQ_WHISPER_MODEL=whisper-large-v3` (default) or `whisper-large-v3-turbo`, and `GROQ_SPEECH_LANGUAGE=uz` (default; `auto` enables language detection).
 
 
-The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Staff voice now executes directly after transcription; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.
+The default Whisper context includes analytics vocabulary as well as repair terms. In a user-confirmed two-second sample saying “Kechagi analitika”, the original repair-only prompt produced “Gece gelik analitika”; adding analytics examples recovered the intended phrase. This is a single-sample result, not a general accuracy guarantee. `GROQ_SPEECH_PROMPT` optionally overrides the default context (keep it short and in the audio language). Staff voice requires transcript confirmation before execution; no automatic rewriting of names, prices or dates is applied. User audio files are not included in the repository.
 
 
 After a button action completes, the bot removes the clicked message’s inline keyboard. Completed text actions also clear older tracked keyboards in that conversation. New response buttons remain available, and delayed retries do not clear newer messages. Explicit cancellation replies use the exact text `Amal bekor qilindi.`; expired proposals keep their explanatory error. Cleanup failures can retry without repeating the saved command or reply.

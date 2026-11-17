@@ -20,7 +20,7 @@ export function proposalReply(p){
 
 export function telegramPresentation(result){
  const buttons=result.kind==='transcript'?[
-  [{text:'✅ Davom etish',callback_data:`voiceuse:${result.draft.token}`},{text:'✏️ Matnni tuzatish',callback_data:`voiceedit:${result.draft.token}`}],
+  [{text:'✅ Tasdiqlash',callback_data:`voiceuse:${result.draft.token}`},{text:'✏️ Tahrirlash',callback_data:`voiceedit:${result.draft.token}`}],
   [{text:'❌ Bekor qilish',callback_data:`voicedeny:${result.draft.token}`}]
  ]:result.kind==='confirmation'?[
   [{text:'✅ Tasdiqlash',callback_data:`confirm:${result.proposal.token}`},{text:'✏️ Tahrirlash',callback_data:`edit:${result.proposal.token}`}],
