@@ -13,6 +13,7 @@
     "test": "node --test test/*.test.js",
     "repair:start": "node src/server.js",
     "db:setup": "node scripts/setup.js",
+    "telegram:commands": "node scripts/telegram-commands.js",
     "telegram:setup": "node scripts/telegram-webhook.js",
     "eval": "node scripts/eval.js",
     "speech:try": "node scripts/speech-try.js",

@@ -2,16 +2,17 @@ import {sectionButtons} from './bot-menu.js';
 import {createHash} from 'node:crypto';
 import {setupPul,pulRows} from './pul-db.js';
 import {remaining,money,reportText} from './pul-domain.js';
-import {pulOwnerIds} from './pul.js';
+import {setupStaff,staffAccess} from './staff-auth.js';
 import {todayInTashkent} from './time.js';
 export async function pulDailyNotifications({db,env=process.env,send,now=()=>Date.now()}){
- await setupPul(db);
+ await setupPul(db);await setupStaff(db,env);
  const shopId=env.PUL_SHOP_ID||'main',today=todayInTashkent(new Date(now())),records=await pulRows(db,shopId);
  const workers=(await db.execute({sql:'SELECT * FROM pul_workers WHERE shop_id=?',args:[shopId]})).rows;
  const names=Object.fromEntries(workers.map(w=>[w.user_id,w.name]));
- const owners=pulOwnerIds(env),recipients=new Map();
+ const users=(await db.execute('SELECT telegram_id FROM staff_users WHERE is_active=1')).rows;const allowed=new Map();for(const user of users){const access=await staffAccess(db,env,user.telegram_id);if(access?.permissions.includes('pul.read'))allowed.set(String(user.telegram_id),access);}
+ const owners=[...allowed.values()].filter(a=>a.permissions.includes('admin')).map(a=>a.id),recipients=new Map();
  for(const id of owners)recipients.set(workers.find(w=>w.user_id===id)?.chat_id||id,{owner:true,userIds:new Set()});
- for(const worker of workers){const existing=recipients.get(worker.chat_id)||{owner:owners.includes(worker.user_id),userIds:new Set()};existing.userIds.add(worker.user_id);recipients.set(worker.chat_id,existing);}
+ for(const worker of workers){if(!allowed.has(worker.user_id)||!/^\d+$/.test(worker.chat_id))continue;const existing=recipients.get(worker.chat_id)||{owner:owners.includes(worker.user_id),userIds:new Set()};existing.userIds.add(worker.user_id);recipients.set(worker.chat_id,existing);}
  let sent=0,failed=0;
  for(const [chatId,recipient] of recipients){
   const scoped=recipient.owner?records:records.filter(r=>recipient.userIds.has(r.worker_id));

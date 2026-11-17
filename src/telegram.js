@@ -1,14 +1,17 @@
 import {sectionButtons} from './bot-menu.js';
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
-export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu,runPul,typing,buttonProgress}) {
+export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu,runPul,typing,buttonProgress,resolveStaff,runLogin}) {
  return async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   const secret=env.TELEGRAM_WEBHOOK_SECRET;
-  if(!secret||!runCommand)return res.status(503).json({error:'Telegram setup incomplete'});
+  if(!secret||(!runCommand&&!runLogin))return res.status(503).json({error:'Telegram setup incomplete'});
   const actual=Buffer.from(req.get('X-Telegram-Bot-Api-Secret-Token')||'');const expected=Buffer.from(secret);
   if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return res.status(401).json({error:'Unauthorized'});
   const update=req.body;const callback=update?.callback_query;
+  if(runLogin){const response=await runLogin(update);if(response){if(callback&&answerCallback)await answerCallback(callback.id).catch(()=>{});if(callback&&clearButtons)await clearButtons({conversationId:'staff-login',updateId:update.update_id,chatId:callback.message.chat.id,sourceMessageId:callback.message.message_id,onlySource:true}).catch(()=>{});return res.json({method:'sendMessage',chat_id:(callback?.message||update.message).chat.id,...response});}}
+
+  if(!runCommand)return res.status(503).json({error:'Telegram setup incomplete'});
   let msg=update?.message;
   if(callback){
    const section=/^section:(pul|tamirlash)$/.exec(callback.data||'');
@@ -19,8 +22,9 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
   }
   if(!Number.isSafeInteger(update?.update_id)||!msg||msg.chat?.type!=='private'||!Number.isSafeInteger(msg.chat.id)||!Number.isSafeInteger(msg.from?.id)||msg.from.is_bot)return res.json({ok:true});
   let masters;
-  try{masters=JSON.parse(env.TELEGRAM_MASTERS||'{}');}catch{return res.status(503).json({error:'Invalid staff configuration'});}
-  const masterId=Object.hasOwn(masters,String(msg.from.id))?masters[String(msg.from.id)]:null;
+  try{masters=resolveStaff?{}:JSON.parse(env.TELEGRAM_MASTERS||'{}');}catch{return res.status(503).json({error:'Invalid staff configuration'});}
+  const access=resolveStaff?await resolveStaff(String(msg.from.id)):null;
+  const masterId=resolveStaff?access?.masterId:Object.hasOwn(masters,String(msg.from.id))?masters[String(msg.from.id)]:null;
   if(typeof masterId!=='string'||!masterId.trim())return res.json({ok:true});
   const conversationId=`telegram:${msg.chat.id}:${msg.from.id}`;
   const receivedBy=String(msg.from.id);
@@ -33,8 +37,9 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
    const process=async()=>{
     if(runMenu){
      const menu=await runMenu({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:msg.text});
+     if(resolveStaff&&menu.section==='money'&&!access?.permissions.includes('pul.read'))return {text:'Pul bo‘limiga ruxsat yo‘q.',reply_markup:sectionButtons('tamirlash')};
+     if(resolveStaff&&menu.section==='repair'&&!access?.permissions.includes('repairs'))return {text:'Ta’mirlash bo‘limiga ruxsat yo‘q.',reply_markup:sectionButtons('pul')};
      if(menu.payload){
-      if(runPul&&['reports','debts'].includes(menu.section)&&['Hisobot','Qarz daftar'].includes(msg.text))return runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:menu.section==='reports'?'/pul_report':'/pul_debts',chatId:msg.chat.id,receivedBy,receivedByName});
       return menu.payload;
      }
      if(menu.section!=='repair'){

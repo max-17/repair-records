@@ -34,6 +34,9 @@ async function createTables(db){
   shop_id TEXT NOT NULL, request_id TEXT NOT NULL, input_hash TEXT NOT NULL, result_json TEXT NOT NULL,
   PRIMARY KEY(shop_id,request_id)
  )`);
+ await db.execute(`CREATE TABLE IF NOT EXISTS pul_photos (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL, bytes BLOB NOT NULL, content_type TEXT NOT NULL, created_at TEXT NOT NULL
+ )`);
  await db.execute(`CREATE TABLE IF NOT EXISTS pul_notifications (
   id TEXT PRIMARY KEY, shop_id TEXT NOT NULL, local_date TEXT NOT NULL, chat_id TEXT NOT NULL,
   payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error_code TEXT
@@ -43,7 +46,7 @@ export const decodePul=row=>row?{...row,data:JSON.parse(row.data_json),version:N
 export async function pulRows(db,shopId){return (await db.execute({sql:'SELECT * FROM pul_records WHERE shop_id=? ORDER BY created_at DESC,id',args:[shopId]})).rows.map(decodePul);}
 export async function savePulRecord(tx,ctx,{before=null,kind,data,referenceId=null,deleted=false,reason=null,action}){
  const at=new Date(ctx.now).toISOString(),id=before?.id||randomUUID();
- const worker=before?.worker_id||ctx.userId;
+ const worker=before?.worker_id||ctx.workerId||ctx.userId;
  if(before){
   const result=await tx.execute({sql:'UPDATE pul_records SET data_json=?,is_deleted=?,version=version+1,updated_at=? WHERE id=? AND shop_id=? AND version=?',args:[JSON.stringify(data),deleted?1:0,at,id,ctx.shopId,before.version]});
   if(result.rowsAffected!==1)throw new Error('PUL_STALE');

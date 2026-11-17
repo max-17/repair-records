@@ -8,7 +8,7 @@ export function minor(value){
 export function money(value,currency='UZS'){return `${new Intl.NumberFormat('uz-UZ',{maximumFractionDigits:2}).format(value/100)} ${currency}`;}
 export function validDate(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;}
 export function checkDate(value){if(value!=null&&!validDate(value))throw new PulError('Sanani YYYY-MM-DD ko‘rinishida yozing.');return value||null;}
-export const visibleTo=(row,ctx)=>row.shop_id===ctx.shopId&&(ctx.owner||row.worker_id===ctx.userId||row.kind==='vendor');
+export const visibleTo=(row,ctx)=>row.shop_id===ctx.shopId&&(ctx.owner||ctx.all||row.worker_id===ctx.userId||row.kind==='vendor');
 export function paidTo(records,id,source='customer',exceptId=null){return records.filter(r=>r.kind==='payment'&&!r.is_deleted&&r.reference_id===id&&r.id!==exceptId&&(r.data.source||'customer')===source).reduce((sum,r)=>sum+r.data.settledMinor,0);}
 export function remaining(row,records){return Math.max(0,row.data.totalMinor-(row.kind==='sale'?(row.data.financedMinor||0):0)-paidTo(records,row.id));}
 export function providerRemaining(row,records){return Math.max(0,(row.data.expectedVendorMinor||0)-paidTo(records,row.id,'vendor'));}

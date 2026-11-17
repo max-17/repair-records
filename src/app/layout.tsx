@@ -13,6 +13,7 @@ import './inventory-layout.css';
 import './checkout-layout.css';
 import './labels-layout.css';
 import './repairs-layout.css';
+import './pul-layout.css';
 import { TelegramBridge } from '@/components/telegram-bridge';
 import Providers from '@/components/providers';
 export const metadata:Metadata={title:'TechSpace — Elektronika va aksessuarlar',description:'Mahsulotlarni ko‘ring, narxlarni solishtiring va do‘kon bilan to‘g‘ridan-to‘g‘ri bog‘laning.'};

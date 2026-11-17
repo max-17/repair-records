@@ -11,18 +11,24 @@ export function pulOwnerIds(env){
 }
 const methods={cash:'Naqd',card:'Karta',transfer:'O‘tkazma'};
 const actions={sale:'Sotuv / xizmat',debt:'Qarz yozish',pay:'Qarz to‘lovi',vendor_payment:'Provayder to‘lovi',vendor:'Provayder',edit:'Tahrirlash',delete:'O‘chirish',restore:'Tiklash',remind:'Eslatma'};
-export function pulService({db,parse,transcribeVoice,env={},now=()=>Date.now()}){
+export function pulService({db,parse,transcribeVoice,env={},allowAttribution=false,authorize,now=()=>Date.now()}){
  let ready;
  const init=async()=>{try{await (ready??=setupPul(db));}catch(error){ready=null;throw error;}};
  return async input=>{
   await init();
   const ctx={shopId:env.PUL_SHOP_ID||'main',userId:String(input.receivedBy),userName:input.receivedByName||String(input.receivedBy),conversationId:input.conversationId,requestId:input.requestId,now:now()};
-  ctx.owner=pulOwnerIds(env).includes(ctx.userId);
+  if(allowAttribution&&input.attributedWorkerId)ctx.workerId=input.attributedWorkerId;
+  const access=authorize?await authorize(ctx.userId):null;
+  if(authorize&&(!access||!access.permissions.includes('pul.read')))return {text:'Pul bo‘limiga kirish huquqi yo‘q.'};
+  ctx.owner=authorize?access.permissions.includes('admin'):pulOwnerIds(env).includes(ctx.userId);
+  ctx.all=ctx.owner||Boolean(access?.permissions.includes('pul.all'));
+  ctx.canWrite=!authorize||access.permissions.includes('pul.write');
+  if(ctx.workerId&&!ctx.owner&&ctx.workerId!==ctx.userId)return {text:'Boshqa xodimni tanlash huquqi yo‘q.'};
   if(!ctx.userId||ctx.userId==='undefined')throw new Error('PUL_AUTH_REQUIRED');
-  const hash=createHash('sha256').update(JSON.stringify({actor:ctx.userId,conversation:ctx.conversationId,text:input.text??null,voice:input.voice?.file_id??null,photo:input.photo??null})).digest('hex');
+  const hash=createHash('sha256').update(JSON.stringify({actor:ctx.userId,conversation:ctx.conversationId,text:input.text??null,voice:input.voice?.file_id??null,photo:input.photo??null,commandData:input.commandData??null,worker:ctx.workerId||null})).digest('hex');
   const prior=(await db.execute({sql:'SELECT * FROM pul_requests WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0];
   if(prior){if(prior.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');return JSON.parse(prior.result_json);}
-  await db.execute({sql:'INSERT INTO pul_workers(shop_id,user_id,name,chat_id) VALUES(?,?,?,?) ON CONFLICT(shop_id,user_id) DO UPDATE SET name=excluded.name,chat_id=excluded.chat_id',args:[ctx.shopId,ctx.userId,ctx.userName,String(input.chatId)]});
+  if(input.chatId!=null)await db.execute({sql:'INSERT INTO pul_workers(shop_id,user_id,name,chat_id) VALUES(?,?,?,?) ON CONFLICT(shop_id,user_id) DO UPDATE SET name=excluded.name,chat_id=excluded.chat_id',args:[ctx.shopId,ctx.userId,ctx.userName,String(input.chatId)]});
   const stored=(await db.execute({sql:'SELECT * FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]})).rows[0];
   const draft=stored?JSON.parse(stored.state_json):null;
   let text=input.text||'',records=accessibleRows(await pulRows(db,ctx.shopId),ctx);
@@ -31,6 +37,7 @@ export function pulService({db,parse,transcribeVoice,env={},now=()=>Date.now()})
   const ctxDate=todayInTashkent(new Date(commandTime));
   let next=draft,payload;
   try{
+   if((command&&command[1]!=='showphoto'||input.photo)&&!ctx.canWrite)throw new PulError('Yozuv qo‘shish yoki o‘zgartirish huquqi yo‘q.');
    if(command){
     if(command[1]==='showphoto'){
      const row=records.find(r=>r.id===command[2]&&!r.is_deleted);
@@ -51,6 +58,7 @@ export function pulService({db,parse,transcribeVoice,env={},now=()=>Date.now()})
        if(current?.token!==draft.token||JSON.parse(current.state_json).phase!=='pending')throw new PulError('Tasdiqlash eskirgan.');
        const fresh=accessibleRows(await pulRows(tx,ctx.shopId),ctx);
        if(draft.prepared.before){const live=fresh.find(r=>r.id===draft.prepared.before.id);if(!live||live.version!==draft.prepared.before.version)throw new PulError('Yozuv o‘zgargan. Uni qayta tekshiring.');}
+       if(allowAttribution)ctx.workerId=draft.workerId||null;
        const prepared=prepare(draft.plan,fresh,ctx,draft.photo);
        if(JSON.stringify(prepared)!==JSON.stringify(draft.prepared))throw new PulError('Ma’lumotlar o‘zgargan. Buyruqni qayta yuboring.');
        const saved=await apply(tx,ctx,prepared,todayInTashkent(new Date(draft.at)));
@@ -83,7 +91,8 @@ export function pulService({db,parse,transcribeVoice,env={},now=()=>Date.now()})
     }else if(['list','report','history'].includes(plan.action)){
      payload=await readAction(db,plan,records,ctx,ctxDate);next={token:randomUUID(),phase:'done',at:ctx.now};
     }else{
-     next={token:randomUUID(),plan,photo:previous?draft.photo:null,phase:'pending',at:previous?draft.at:commandTime};
+     if(!ctx.canWrite)throw new PulError('Yozuv qo‘shish yoki o‘zgartirish huquqi yo‘q.');
+     next={token:randomUUID(),plan,workerId:ctx.workerId||null,photo:previous?draft.photo:input.initialPhoto||null,phase:'pending',at:previous?draft.at:commandTime};
      try{next.prepared=prepare(plan,records,ctx,next.photo);payload=review(next);}
      catch(error){if(!(error instanceof PulError))throw error;next.phase='clarify';payload={text:error.message};}
     }
@@ -214,7 +223,7 @@ function review(draft){
 async function readAction(db,plan,records,ctx,today){
  if(plan.action==='report'){
   const workers=(await db.execute({sql:'SELECT user_id,name FROM pul_workers WHERE shop_id=?',args:[ctx.shopId]})).rows;
-  return {text:reportText(records,{start:plan.start_date||today,end:plan.end_date||plan.start_date||today,userNames:Object.fromEntries(workers.map(r=>[r.user_id,r.name])),workerId:ctx.owner?null:ctx.userId}).slice(0,3900)};
+  return {text:reportText(records,{start:plan.start_date||today,end:plan.end_date||plan.start_date||today,userNames:Object.fromEntries(workers.map(r=>[r.user_id,r.name])),workerId:ctx.all?null:ctx.userId}).slice(0,3900)};
  }
  if(plan.action==='history'){
   const row=findTarget(plan,records,{deleted:Boolean(plan.include_deleted)});

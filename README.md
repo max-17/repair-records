@@ -234,7 +234,7 @@ is bounded to seven days/10,000 events.
 
 ## Pul: sales, services and qarz daftar
 
-Use the existing **staff** bot: `/pul` or the Pul menu. `/repair` returns to repairs. No second bot or AI key is required. Pul automatically creates its tables on first use and uses the existing Turso credentials. It is a ledger, not a BILLZ integration or inventory checkout: recording a Pul sale does not deduct stock, and entering it separately in the web checkout is not synchronized.
+Use the existing **staff** bot: `/pul` command. `/tamirlash` returns to repairs (`/repair` also works). No second bot or AI key is required. Pul automatically creates its tables on first use and uses the existing Turso credentials. It is a ledger, not a BILLZ integration or inventory checkout: recording a Pul sale does not deduct stock, and entering it separately in the web checkout is not synchronized.
 
 Examples (Uzbek text or voice):
 
@@ -253,7 +253,7 @@ The owner can create/update providers, e.g. `Uzum Nasiya provayderini qo‘sh: k
 
 ### Owner, daily reports and reminders
 
-Set `PUL_OWNER_USER_IDS` to comma-separated owner Telegram user IDs. `PUL_OWNER_CHAT_ID` optionally sets the owner report chat. Existing `SHOP_ADMIN_CHAT_ID` or the first `TELEGRAM_MASTERS` entry named `owner` is a fallback. The owner must start the **staff bot** so it can send reports. Workers see their own ledger; owners can view all workers. Every write is attributed to the actual authenticated Telegram user, even when several workers share a repair master ID.
+Manage owners and staff in **/admin/staff**. Existing Telegram master/owner environment settings are imported once during the first role-table setup; afterwards the database is authoritative. The owner must start the **staff bot** so it can send reports. Workers see their own ledger; owners can view all workers. Every write is attributed to the actual authenticated Telegram user, even when several workers share a repair master ID.
 
 The existing protected `/api/telegram/cron` now also sends Pul reports/reminders. With the checked-in Vercel daily schedule, it runs at **21:00 Asia/Tashkent**. Keep `CRON_SECRET` configured. Owner gets all-worker totals and debt reminders; registered workers get their own due-debt reminders. Due/reminder dates are optional. Settled or soft-deleted debts are excluded. Reports keep currencies separate and distinguish sales, customer receipts, debt repayments and provider receipts. Delivery is claimed once per recipient/day; failed/uncertain outcomes remain in `pul_notifications` and are not blindly resent.
 
@@ -266,3 +266,16 @@ The existing protected `/api/telegram/cron` now also sends Pul reports/reminders
 - `pul_notifications`: persisted daily notification claims and outcomes.
 
 Sale debt is computed from agreed price minus customer payments and provider-financed principal. Standalone notebook debts are separate obligations. Deletions are soft and require a reason; records with active linked payments cannot be deleted until those payments are explicitly reversed via soft deletion. Restoring or editing payments rechecks the current balance. No purchasing, trade-in, bank integration, profit accounting or payment execution is implemented.
+
+
+## Pul web interface and staff invitations
+
+Open **/admin/pul** for the shared bot/web ledger. Records can be searched by customer, phone, description or ID, filtered by worker/date/type/deletion state, and opened with their payments, photo and history. Qarz daftar includes unpaid sales without duplicating them as separate debts. Analytics separates sales, actual receipts, repayments and provider receipts, grouped by worker/day/currency. Debt balances are current, even when viewing a past period.
+
+Use **Sotuv / xizmat**, **Qarz yozish**, or a record's **To‘lov yozish** button for manual entry. Review the interpreted fields before **Tasdiqlash va saqlash**. Owners may select a responsible worker; the action history always identifies the logged-in actor. Partial/split payments, UZS/USD conversion rates, provider financing, photos, edits, soft deletion and restoration reuse the bot's validation and audit rules. Manual photos are private JPG/PNG/WebP blobs up to 2 MB; there is no additional upload-service key requirement. This ledger does not automatically update inventory or BILLZ.
+
+In **/admin/staff**, the owner assigns roles/access and creates invitation links to send to staff. Each link expires after seven days and is single-use. Staff open it, press **Telegram orqali kirish**, then **Kirishni tasdiqlash** in the existing staff bot and return to the website. Login approval is bound to that browser via an HttpOnly proof cookie and expires after ten minutes. A copied invite cannot change an existing account's role. Deactivation takes effect for existing web sessions and bot commands. The last active database owner cannot be removed.
+
+No `PUL_OWNER_USER_IDS` maintenance is required. Existing mappings are bootstrap-only. Keep `ADMIN_SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, database variables and `CRON_SECRET`; `ADMIN_PASSWORD` remains an owner recovery/bootstrap login. Optional `STAFF_BOT_USERNAME` avoids a getMe lookup; otherwise the correct username is read from Telegram. Invitations use the existing webhook, so no Telegram Login Widget/domain registration or second bot token is required. Role and user history lives in append-only `staff_events`.
+
+Telegram uses `/start`, `/pul`, `/tamirlash` without reply menus. Contextual inline buttons link to sections. `bun run telegram:commands` refreshes Telegram's registered command list; webhook setup does this too.
