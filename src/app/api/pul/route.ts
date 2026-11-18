@@ -32,7 +32,7 @@ export async function POST(request:Request){
   if(body.action==='preview'){
    if(!actor.permissions.includes('admin')&&body.workerId!==actor.id)throw new Error('INVALID_WORKER');
    plan=pulPlanSchema.parse({...Object.fromEntries(Object.keys(pulPlanSchema.shape).map(k=>[k,k==='include_deleted'?false:null])),...body.plan});
-   if(!['sale','debt','pay','vendor_payment','vendor','edit','delete','restore','remind'].includes(plan.action))throw new Error('INVALID_ACTION');
+   if(!['sale','purchase','debt','pay','vendor','edit','delete','restore','remind'].includes(plan.action))throw new Error('INVALID_ACTION');
    if(body.workerId!==webActor&&!['edit','delete','restore','remind'].includes(plan.action)){const worker=(await db.execute({sql:'SELECT telegram_id FROM staff_users WHERE telegram_id=? AND is_active=1',args:[body.workerId||'']})).rows[0];if(!worker)throw new Error('INVALID_WORKER');}
    if(body.photo){if(!/^web:[0-9a-f-]{36}$/.test(body.photo))throw new Error('INVALID_PHOTO');const image=(await db.execute({sql:'SELECT id FROM pul_photos WHERE shop_id=? AND id=?',args:[shop,body.photo.slice(4)]})).rows[0];if(!image)throw new Error('INVALID_PHOTO');}
   }else if(!uuid(body.token))throw new Error('INVALID_TOKEN');

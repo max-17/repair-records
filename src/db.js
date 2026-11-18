@@ -1,3 +1,4 @@
+import {setupSources} from './pul-sources.js';
 import {setupBotMenu} from './bot-menu.js';
 import 'dotenv/config';
 import { createClient } from '@libsql/client';
@@ -23,6 +24,7 @@ export async function setup(db) {
     before_json TEXT, after_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   )`);
+  await setupSources(db);
   await db.execute('CREATE INDEX IF NOT EXISTS repair_events_lookup ON repair_events(master_id,repair_id,created_at)');
   await db.execute(`CREATE TABLE IF NOT EXISTS telegram_deliveries (
     update_id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL,

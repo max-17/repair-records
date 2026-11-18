@@ -1,3 +1,4 @@
+import {audioArchive} from './pul-sources.js';
 import {randomUUID} from 'node:crypto';
 import {observe,withTraceContext,recordOperationalEvent} from '../shared/observability.js';
 import {database,setup} from './db.js';
@@ -23,7 +24,7 @@ export function createRuntimeApp(env=process.env) {
   const clearButtons=db&&env.TELEGRAM_BOT_TOKEN?telegramButtonCleanup({db,token:env.TELEGRAM_BOT_TOKEN}):null;
   const speechProvider=env.SPEECH_PROVIDER||((env.AISHA_API||env.AISHA_API_KEY||env.VOICELAB_API_KEY)?'aisha':'groq');
   const transcriber=speechProvider==='groq'?groqTranscriber(env):aishaTranscriber(env,{db});
-  const runVoice=db&&runCommand?voiceService({db,previewCommand:input=>runCommand({...input,previewOnly:true}),transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args)),runCommand}):null;
+  const runVoice=db&&runCommand?voiceService({db,archiveAudio:audioArchive(env),previewCommand:input=>runCommand({...input,previewOnly:true}),transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args)),runCommand}):null;
   const clearVoice=async({masterId,conversationId})=>{await db.execute({sql:"UPDATE voice_drafts SET status='cancelled' WHERE master_id=? AND conversation_id=? AND status IN ('pending','editing')",args:[masterId,conversationId]});};
   const answerCallback=async id=>{await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({callback_query_id:id}),signal:AbortSignal.timeout(3000)});};
   const runMenu=db?botMenuService({db}):null;

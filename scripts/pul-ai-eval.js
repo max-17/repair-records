@@ -1,0 +1,48 @@
+// Live model evaluation: fictional data and a disposable local DB only.
+import 'dotenv/config';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createClient} from '@libsql/client';
+import {pulParser} from '../src/pul-parser.js';
+import {pulService} from '../src/pul.js';
+import {pulRows,setupPul,savePulRecord} from '../src/pul-db.js';
+import {remaining} from '../src/pul-domain.js';
+const dir=await mkdtemp(join(tmpdir(),'pul-live-eval-'));
+const db=createClient({url:`file:${join(dir,'test.db')}`});
+const results=[];let sequence=0,currentPlan;
+const only=process.argv[process.argv.indexOf('--case')+1];
+const selected=process.argv.includes('--case')?only:null;
+const env={...process.env,PUL_OWNER_USER_IDS:'42',PUL_SHOP_ID:'evaluation',NODE_ENV:'test'};
+const live=pulParser(env);
+const run=pulService({db,env,parse:async input=>{currentPlan=await live(input);return currentPlan;},now:()=>Date.parse('2026-11-18T09:00:00Z')});
+const send=(text,chat)=>run({text,receivedBy:'42',receivedByName:'Test worker',conversationId:chat,requestId:`eval-${++sequence}`,chatId:42,messageId:sequence});
+async function scenario(name,fn){if(selected&&!name.includes(selected))return;if(results.length)await new Promise(resolve=>setTimeout(resolve,5000));const start=Date.now();try{await fn();results.push({name,pass:true,ms:Date.now()-start});}catch(e){results.push({name,pass:e.statusCode?null:false,ms:Date.now()-start,error:e.statusCode?`${e.name}: HTTP ${e.statusCode}`:e.name==='AssertionError'?e.message:`${e.name}: evaluation failed`});}console.log(JSON.stringify(results.at(-1)));}
+function check(value,message){if(!value){const e=new Error(message);e.name='AssertionError';throw e;}}
+async function preview(text,chat){const count=(await pulRows(db,'evaluation')).length;const reply=await send(text,chat);check((await pulRows(db,'evaluation')).length===count,'Wrote before confirmation');return reply;}
+async function confirm(reply,chat){const button=reply.reply_markup?.inline_keyboard.flat().find(b=>b.callback_data.startsWith('pul_confirm:'));check(button,`No confirmation: ${reply.text}`);const result=await send('/pul_confirm '+button.callback_data.split(':')[1],chat);check(result.text.startsWith('Saqlandi.'),result.text);return (await pulRows(db,'evaluation')).find(r=>r.kind==='sale'&&r.data.items?.some(i=>i.name.includes('iPhone')));}
+try{
+ await setupPul(db);
+ if(selected==='partial debt'){
+  const tx=await db.transaction('write');try{await savePulRecord(tx,{shopId:'evaluation',userId:'42',userName:'Test worker',requestId:'seed',now:Date.parse('2026-11-18T09:00:00Z')},{kind:'debt',data:{customer:'Bekzod aka',currency:'UZS',totalMinor:50000000,dueDate:'2026-11-25',occurredOn:'2026-11-18'}});await tx.commit();}finally{if(!tx.closed)await tx.rollback();}
+ }
+
+ await scenario('cash sale; no customer required',async()=>{const r=await preview('iPhone 15 ni 8 million so‘mga naqd sotdim','cash');check(currentPlan.action==='sale','Not sale');check(currentPlan.payments?.[0]?.amount===8000000,'Incorrect payment');await confirm(r,'cash');});
+ await scenario('software service without device',async()=>{const r=await preview('Telegram ochib berdim, xizmat haqi 50 ming so‘m, naqd oldim','service');check(currentPlan.items?.[0]?.type==='service','Not service');check(!currentPlan.customer,'Invented customer');await confirm(r,'service');});
+ await scenario('cash plus bank transfer',async()=>{const r=await preview('Ali akaga Samsung S24 ni 6 million so‘mga sotdim. 2 million naqd, 4 million kartadan kartaga o‘tkazdi.','split');check(currentPlan.payments?.length===2,'Not two payments');check(currentPlan.payments.some(p=>p.amount===2000000&&p.method==='cash'),'Cash wrong');check(currentPlan.payments.some(p=>p.amount===4000000&&p.method==='transfer'),'Transfer wrong');await confirm(r,'split');});
+ await scenario('two currencies kept separate without conversion',async()=>{const r=await preview('iPhone 14 ni 5 million so‘mga sotdim. 100 dollar naqd oldim, yana 3 million 700 ming so‘mni bank kartaga o‘tkazdi. To‘liq to‘ladi, qarzi yo‘q.','fx');check(currentPlan.payments?.some(p=>p.currency==='USD'&&p.amount===100&&!Object.hasOwn(p,'exchange_rate')),'Currency/amount wrong or rate field present');await confirm(r,'fx');const rows=await pulRows(db,'evaluation');const row=rows.find(r=>r.kind==='sale'&&r.data.items?.some(i=>i.name==='iPhone 14'));check(row&&remaining(row,rows)===0,'Incorrect converted balance');});
+ await scenario('mixed currencies with unclear debt asks settlement status, never a rate',async()=>{const r=await preview('Redmi 12 ni 2 million so‘mga sotdim, 100 dollar naqd oldim','no-fx');check(!r.reply_markup?.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')),'Allowed unclear remaining balance');check(!/kurs|exchange rate/i.test(r.text),'Asked for a currency rate');});
+ await scenario('named debt and due date',async()=>{const r=await preview('Bekzod aka bizdan 500 ming so‘m qarz, 25 noyabrda qaytaradi. Qarz daftariga yoz.','debt');check(currentPlan.action==='debt','Not debt');check(currentPlan.due_date==='2026-11-25','Incorrect due date');await confirm(r,'debt');});
+ await scenario('partial debt repayment',async()=>{const r=await preview('Bekzod aka qarzidan 200 ming so‘mni naqd qaytardi','repay');check(currentPlan.action==='pay','Not repayment');await confirm(r,'repay');const rows=await pulRows(db,'evaluation');check(remaining(rows.find(r=>r.kind==='debt'),rows)===30000000,'Wrong debt balance');});
+ await scenario('multi-message missing payment then correction',async()=>{await preview('Vali akaga Poco X5 ni 3 million so‘mga sotdim','follow');let r=await preview('1 million naqd, 2 million kartaga o‘tkazdi','follow');check(currentPlan.action==='sale','Follow-up lost sale');check(currentPlan.items?.some(i=>/poco/i.test(i.name)),'Follow-up lost product');r=await preview('Yo‘q, 1 million emas, 500 ming naqd, 2 million 500 ming o‘tkazma','follow');check(currentPlan.payments?.some(p=>p.amount===500000),'Correction lost cash');await confirm(r,'follow');});
+ await scenario('yesterday report',async()=>{await preview('Kechagilik analitika','report');check(currentPlan.action==='report'&&currentPlan.start_date==='2026-11-17'&&currentPlan.end_date==='2026-11-17','Incorrect report period');});
+ await scenario('used-phone purchase is outgoing money',async()=>{const r=await preview('Mijozdan ishlatilgan iPhone 12 ni 2 million so‘mga sotib oldim, unga to‘liq 2 million naqd berdim','purchase');check(currentPlan.action==='purchase','Purchase misclassified');await confirm(r,'purchase');const rows=await pulRows(db,'evaluation'),purchase=rows.find(r=>r.kind==='purchase');check(purchase,'No purchase');check(rows.filter(r=>r.reference_id===purchase.id).every(r=>r.data.source==='shop'),'Purchase incorrectly counted as income');});
+ await scenario('unnamed debt must require customer name',async()=>{const r=await preview('300 ming so‘m qarz yoz, ertaga qaytaradi','unnamed');check(!r.reply_markup?.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')),'Unnamed debt is currently allowed');});
+ await scenario('financing remainder without commission configuration',async()=>{const r=await preview('Ali akaga iPhone 16 ni 10 millionga sotdim, 2 million naqd oldim, qolgan 8 million Uzum Nasiya orqali','finance');check(currentPlan.vendor&&currentPlan.financed_amount===8000000,'Financing extraction wrong');check(r.reply_markup?.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')),`Financing blocked: ${r.text}`);});
+ await scenario('essay: $100 cash, 2m UZS transfer, 5m Exchange financing',async()=>{
+ const r=await preview('Bugun Bekzod aka keldi, ancha gaplashdik. Oxiri iPhone 15 ni 8 million 300 ming so‘mga olishga kelishdik. U yuz dollarni naqd berdi. Keyin telefonidan mening bank kartamga 2 million so‘mni kartadan kartaga o‘tkazdi. Qolgan besh million so‘mni Exchange muddatli to‘lov provayderi moliyalashtirdi. Endi mijozning do‘konga qarzi yo‘q. Shularni bitta sotuv qilib yozib qo‘y, iltimos.','essay');
+ check(currentPlan.action==='sale','Essay misclassified');check(currentPlan.payments?.length===2,'Expected two customer payments');check(currentPlan.payments.some(p=>p.currency==='USD'&&p.amount===100&&p.method==='cash'),'USD cash wrong');check(currentPlan.payments.some(p=>p.currency==='UZS'&&p.amount===2000000&&p.method==='transfer'),'UZS transfer wrong');check(currentPlan.financed_amount===5000000&&/exchange/i.test(currentPlan.vendor||''),'Financing wrong');check(!Object.hasOwn(currentPlan.payments[0],'exchange_rate'),'Rate field returned');await confirm(r,'essay');const rows=await pulRows(db,'evaluation');const row=rows.find(r=>r.kind==='sale'&&r.data.vendorName?.toLowerCase()==='exchange');check(row&&remaining(row,rows)===0,'Spurious customer debt');
+ });
+ const report={model:env.GEMINI_MODEL||'gemini-3.5-flash-lite',passed:results.filter(r=>r.pass).length,inconclusive:results.filter(r=>r.pass===null).length,total:results.length,results};
+ await writeFile(selected?'/tmp/pul-ai-evaluation-retry-'+selected.replaceAll(' ','-')+'.json':'/tmp/pul-ai-evaluation.json',JSON.stringify(report,null,2));console.log(JSON.stringify({model:report.model,passed:report.passed,total:report.total}));
+}finally{db.close();await rm(dir,{recursive:true,force:true});}

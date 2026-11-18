@@ -1,3 +1,4 @@
+import {audioArchive,sourceFor} from './pul-sources.js';
 import {randomUUID,createHash} from 'node:crypto';
 import {writeTransaction} from './audit.js';
 import {setupPul,pulRows,savePulRecord} from './pul-db.js';
@@ -10,8 +11,8 @@ export function pulOwnerIds(env){
  try{const entries=Object.entries(JSON.parse(env.TELEGRAM_MASTERS||'{}'));const owner=entries.find(([,name])=>name==='owner');return owner?[owner[0]]:[];}catch{return [];}
 }
 const methods={cash:'Naqd',card:'Karta',transfer:'O‘tkazma'};
-const actions={sale:'Sotuv / xizmat',debt:'Qarz yozish',pay:'Qarz to‘lovi',vendor_payment:'Provayder to‘lovi',vendor:'Provayder',edit:'Tahrirlash',delete:'O‘chirish',restore:'Tiklash',remind:'Eslatma'};
-export function pulService({db,parse,transcribeVoice,env={},allowAttribution=false,authorize,now=()=>Date.now()}){
+const actions={purchase:'Xarid / pul chiqimi',sale:'Sotuv / xizmat',debt:'Qarz yozish',pay:'Qarz to‘lovi',vendor_payment:'Provayder to‘lovi',vendor:'Provayder',edit:'Tahrirlash',delete:'O‘chirish',restore:'Tiklash',remind:'Eslatma'};
+export function pulService({db,parse,transcribeVoice,env={},allowAttribution=false,authorize,archiveAudio=audioArchive(env),now=()=>Date.now()}){
  let ready;
  const init=async()=>{try{await (ready??=setupPul(db));}catch(error){ready=null;throw error;}};
  return async input=>{
@@ -48,7 +49,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
      if(command[1]==='cancel'){next={...draft,phase:'cancelled'};payload={text:'Amal bekor qilindi.'};}
      else if(command[1]==='edit'){next={...draft,phase:'editing'};payload={text:'Qaysi ma’lumotni o‘zgartirish kerak? Matn yoki ovoz yuboring. /cancel — bekor qilish.'};}
      else if(command[1]==='photo'){
-      if(draft.plan.action!=='sale'&&!(draft.plan.action==='edit'&&draft.prepared.kind==='sale'))throw new PulError('Rasm faqat sotuv yoki xizmatga qo‘shiladi.');
+      if(!['sale','purchase'].includes(draft.plan.action)&&!(draft.plan.action==='edit'&&['sale','purchase'].includes(draft.prepared.kind)))throw new PulError('Rasm faqat sotuv yoki xizmatga qo‘shiladi.');
       next={...draft,phase:'photo'};payload={text:'Rasm yuboring. Tasdiqlashdan oldin yana ko‘rib chiqasiz.',reply_markup:{inline_keyboard:[[{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]]}};
      }else{
       if(draft.phase!=='pending')throw new PulError('Avval ma’lumotlarni to‘ldiring.');
@@ -61,6 +62,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
        if(allowAttribution)ctx.workerId=draft.workerId||null;
        const prepared=prepare(draft.plan,fresh,ctx,draft.photo);
        if(JSON.stringify(prepared)!==JSON.stringify(draft.prepared))throw new PulError('Ma’lumotlar o‘zgargan. Buyruqni qayta yuboring.');
+       ctx.sourceIds=draft.sourceIds||[];
        const saved=await apply(tx,ctx,prepared,todayInTashkent(new Date(draft.at)));
        const response={text:`Saqlandi.\n${recordSummary(saved,await pulRows(tx,ctx.shopId))}`,...(saved.data.photo?{reply_markup:{inline_keyboard:[[{text:'Rasmni ko‘rish',callback_data:`pul_showphoto:${saved.id}`}]]}}:{})};
        await persist(tx,ctx,hash,{...draft,phase:'done'},response);return response;
@@ -72,32 +74,35 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
     if(draft?.phase!=='photo')throw new PulError('Avval sotuvni kiriting va «Rasm qo‘shish»ni bosing.');
     next={...draft,token:randomUUID(),photo:input.photo,phase:'pending'};next.prepared=prepare(next.plan,records,ctx,input.photo);payload=review(next);
    }else{
+    let audio;
     if(input.voice){
      const stage=`${ctx.requestId}:transcript`;
      const old=(await db.execute({sql:'SELECT input_hash,result_json FROM pul_requests WHERE shop_id=? AND request_id=?',args:[ctx.shopId,stage]})).rows[0];
-     if(old){if(old.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');text=JSON.parse(old.result_json).text;}
+     if(old){if(old.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');({text,audio}=JSON.parse(old.result_json));if(audio?.bytes)audio.bytes=Buffer.from(audio.bytes.data||audio.bytes);}
      else{
-      text=await transcribeVoice(input.voice,{requestId:input.requestId,masterId:input.masterId,conversationId:ctx.conversationId});
+      text=await transcribeVoice(input.voice,{requestId:input.requestId,masterId:input.masterId,conversationId:ctx.conversationId,archiveAudio:async bytes=>{audio=await archiveAudio(bytes,ctx.requestId);}});
       if(typeof text!=='string'||text.trim().length<2||text.length>3000)throw new PulError('Ovozdan aniq ma’lumot olinmadi. Qayta yuboring.');
-      await db.execute({sql:'INSERT INTO pul_requests(shop_id,request_id,input_hash,result_json) VALUES(?,?,?,?) ON CONFLICT DO NOTHING',args:[ctx.shopId,stage,hash,JSON.stringify({text})]});
+      await db.execute({sql:'INSERT INTO pul_requests(shop_id,request_id,input_hash,result_json) VALUES(?,?,?,?) ON CONFLICT DO NOTHING',args:[ctx.shopId,stage,hash,JSON.stringify({text,audio})]});
      }
     }
     if(!text.trim()||text.length>3000)throw new PulError('Qisqa matn yoki ovozli buyruq yuboring.');
-    const previous=draft&&['editing','clarify'].includes(draft.phase)?draft.plan:null;
+    const sourceId=await sourceFor(db,ctx,input,text,audio);
+    const previous=draft&&['pending','editing','clarify'].includes(draft.phase)?draft.plan:null;
+    const sourceIds=[...new Set([...(previous?draft.sourceIds||[]:[]),sourceId])];
     const quick=text==='/pul_report'?{action:'report'}:text==='/pul_debts'?{action:'list',record_kind:'debt'}:null;
     const plan=pulPlanSchema.parse(quick?{...Object.fromEntries(Object.keys(pulPlanSchema.shape).map(k=>[k,k==='include_deleted'?false:null])),...quick}:await parse({text,previous,today:ctxDate,inactivitySeconds:draft?.at?Math.max(0,(ctx.now-draft.at)/1000):null,records:relevantRecords(records,text,previous).map(r=>({id:r.id,kind:r.kind,worker:r.worker_id,is_deleted:r.is_deleted,...r.data}))}));
     if(plan.action==='clarify'){
-     next={token:randomUUID(),plan,phase:'clarify',at:commandTime};payload={text:plan.question||'Mijoz, summa va amalni aniqroq ayting.'};
+     next={token:randomUUID(),sourceIds,plan,phase:'clarify',at:commandTime};payload={text:plan.question||'Mijoz, summa va amalni aniqroq ayting.'};
     }else if(['list','report','history'].includes(plan.action)){
      payload=await readAction(db,plan,records,ctx,ctxDate);next={token:randomUUID(),phase:'done',at:ctx.now};
     }else{
      if(!ctx.canWrite)throw new PulError('Yozuv qo‘shish yoki o‘zgartirish huquqi yo‘q.');
-     next={token:randomUUID(),plan,workerId:ctx.workerId||null,photo:previous?draft.photo:input.initialPhoto||null,phase:'pending',at:previous?draft.at:commandTime};
+     next={token:randomUUID(),sourceIds,plan,workerId:ctx.workerId||null,photo:previous?draft.photo:input.initialPhoto||null,phase:'pending',at:previous?draft.at:commandTime};
      try{next.prepared=prepare(plan,records,ctx,next.photo);payload=review(next);}
      catch(error){if(!(error instanceof PulError))throw error;next.phase='clarify';payload={text:error.message};}
     }
    }
-  }catch(error){if(!(error instanceof PulError))throw error;payload={text:error.message};}
+  }catch(error){if(error?.name==='Error'&&['SOURCE_STORAGE_NOT_CONFIGURED','SOURCE_UPLOAD_FAILED','SOURCE_AUDIO_MISSING'].includes(error.message))error=new PulError('Ovozli xabar saqlanmadi. Amal bajarilmadi. Keyinroq qayta yuboring.');if(!(error instanceof PulError)&&error?.constructor?.name!=='SpeechInputError')throw error;payload={text:error.message};}
   return writeTransaction(db,async tx=>{
    const cached=await cachedResult(tx,ctx,hash);if(cached)return cached;
    const live=(await tx.execute({sql:'SELECT token FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]})).rows[0];
@@ -137,63 +142,95 @@ function prepare(plan,records,ctx,photo){
   const data=vendorData(plan),before=records.find(r=>r.kind==='vendor'&&!r.is_deleted&&r.data.vendor.toLocaleLowerCase()===data.vendor.toLocaleLowerCase())||null;
   return {kind:'vendor',data,before,payments:[]};
  }
- if(plan.action==='sale'){
-  const data=saleData(plan),payments=(plan.payments||[]).map(p=>paymentData(p,data.currency));
+ if(['sale','purchase'].includes(plan.action)){
+  const purchase=plan.action==='purchase';
+  const data=saleData(plan),payments=(plan.payments||[]).map(p=>paymentData(p,data.currency,purchase?'shop':'customer'));
+  const mixed=payments.some(p=>p.currency!==data.currency);
+  const upfront=payments.reduce((sum,p)=>sum+(p.settledMinor||0),0);
+  data.separateCurrencies=mixed;
+  if(upfront>data.totalMinor)throw new PulError('To‘lov summasi kelishilgan narxdan oshib ketdi.');
+  if(purchase){
+   if(plan.vendor||plan.financed_amount)throw new PulError('Xarid provayder orqali sotuv emas. Chiqim to‘lovlarini ayting.');
+   if(data.items.some(i=>i.type!=='product'))throw new PulError('Xarid uchun sotib olingan mahsulotni ayting.');
+   if(!plan.payments||(!mixed&&upfront!==data.totalMinor)||(mixed&&plan.fully_paid!==true))throw new PulError('Xarid uchun to‘liq qancha pul berdingiz va qanday usulda? To‘lovlarni kiriting.');
+   data.photo=photo||null;return {kind:'purchase',data,before:null,payments};
+  }
   if(plan.vendor){
-   const vendor=records.find(r=>r.kind==='vendor'&&!r.is_deleted&&r.data.vendor.toLocaleLowerCase()===plan.vendor.toLocaleLowerCase());
-   if(!vendor)throw new PulError('Provayder topilmadi. Egasi avval nomi, foizi va turini qo‘shsin.');
-   if(!(plan.financed_amount>0))throw new PulError('Provayder qoplaydigan summani ayting.');
-   data.financedMinor=minor(plan.financed_amount);data.vendorId=vendor.id;data.vendorName=vendor.data.vendor;data.rateSnapshot={...vendor.data,version:vendor.version};
-   data.expectedVendorMinor=data.financedMinor-(vendor.data.rateType==='commission'?Math.round(data.financedMinor*vendor.data.percentage/100):0);
+   if(plan.payments===null&&plan.financed_amount!==data.totalMinor/100)throw new PulError('Mijoz qancha oldindan to‘ladi? To‘lov bo‘lmasa, shuni ayting.');
+   const vendor=records.find(r=>r.kind==='vendor'&&!r.is_deleted&&r.data.vendor.toLocaleLowerCase()===plan.vendor.trim().toLocaleLowerCase());
+   if(!(plan.financed_amount>0))throw new PulError('Provayder moliyalashtiradigan qoldiq summani ayting. Valyutalar konvertatsiya qilinmaydi.');
+   data.financedMinor=minor(plan.financed_amount);
+   if(data.financedMinor>data.totalMinor-upfront)throw new PulError('Oldindan to‘lov va provayder summasi sotuv narxidan oshib ketdi.');
+   if(data.financedMinor<=0)throw new PulError('Provayder uchun moliyalashtiriladigan qoldiq yo‘q.');
+   if(!mixed&&upfront+data.financedMinor!==data.totalMinor)throw new PulError('Oldindan to‘lov va moliyalashtirilgan summa sotuv narxiga mos emas. Summalarni tekshiring.');
+   data.vendorId=vendor?.id||null;data.vendorName=vendor?.data.vendor||plan.vendor.trim();
   }else if(plan.financed_amount)throw new PulError('Muddatli to‘lov provayderini ayting.');
-  const covered=payments.reduce((sum,p)=>sum+p.settledMinor,0)+data.financedMinor;
-  if(covered>data.totalMinor)throw new PulError('To‘lov va provayder summasi sotuv narxidan oshib ketdi.');
   if(plan.payments===null&&!data.financedMinor)throw new PulError('Qancha to‘landi va qanday usulda? To‘liq qarz bo‘lsa, «hali to‘lamadi» deb ayting.');
+  if(mixed){
+   if(plan.debt_amount==null&&!plan.vendor&&plan.fully_paid!==true)throw new PulError('Valyutalar alohida saqlanadi. To‘liq to‘landimi? Qarz qolgan bo‘lsa, summasi va valyutasini ayting.');
+   data.openingDebtMinor=plan.debt_amount==null?0:minor(plan.debt_amount);
+   if((plan.fully_paid===true&&data.openingDebtMinor>0)||upfront+data.financedMinor+data.openingDebtMinor>data.totalMinor)throw new PulError('Qarz, to‘lov va sotuv summalarini tekshiring.');
+  }
+  if(!mixed&&plan.debt_amount!=null&&minor(plan.debt_amount)!==data.totalMinor-upfront-data.financedMinor)throw new PulError('Aytilgan qarz qoldig‘i to‘lovlarga mos emas.');
+  if((mixed?data.openingDebtMinor:data.totalMinor-upfront-data.financedMinor)>0&&!data.customer)throw new PulError('Qolgan qarz uchun mijoz ismini ayting. Telefon ixtiyoriy.');
   data.photo=photo||null;return {kind:'sale',data,before:null,payments};
  }
  if(plan.action==='debt')return {kind:'debt',data:debtData(plan),before:null,payments:[]};
  const before=findTarget(plan,records,{deleted:plan.action==='restore'});
  if(!ctx.owner&&before.kind==='payment'&&before.worker_id!==ctx.userId)throw new PulError('Boshqa xodimning to‘lovini faqat egasi o‘zgartira oladi.');
  if(before.kind==='vendor'&&!ctx.owner)throw new PulError('Provayderlarni faqat egasi boshqaradi.');
- if(['pay','vendor_payment'].includes(plan.action)){
+ if(plan.action==='vendor_payment')throw new PulError('Provayderdan pul olish alohida kuzatilmaydi. Faqat moliyalashtirilgan summa saqlanadi.');
+ if(plan.action==='pay'){
   if(!['sale','debt'].includes(before.kind))throw new PulError('To‘lov sotuv yoki qarzga tegishli bo‘lishi kerak.');
   const source=plan.action==='vendor_payment'?'vendor':'customer';
-  const data=paymentData({amount:plan.amount,currency:plan.currency||before.data.currency,method:plan.method,exchange_rate:plan.payments?.[0]?.exchange_rate},before.data.currency,source);
+  const data=paymentData({amount:plan.amount,currency:plan.currency||before.data.currency,method:plan.method},before.data.currency,source);
+  if(data.currency!==before.data.currency)throw new PulError('Qarz to‘lovini qarz valyutasida kiriting. Konvertatsiya qilinmaydi.');
   const available=source==='vendor'?providerRemaining(before,records):remaining(before,records);
-  if(data.settledMinor>available)throw new PulError('To‘lov qolgan summadan oshib ketdi.');
+  if(data.settledMinor!=null&&data.settledMinor>available)throw new PulError('To‘lov qolgan summadan oshib ketdi.');
   return {kind:'payment',data:{...data,customer:before.data.customer,isRepayment:true},before:null,target:{id:before.id,version:before.version},payments:[]};
  }
  let data={...before.data};
  if(plan.action==='edit'||plan.action==='remind'){
-  if(before.kind==='sale'){
-   data=saleData(plan,before.data);Object.assign(data,{vendorName:before.data.vendorName,rateSnapshot:before.data.rateSnapshot,occurredOn:before.data.occurredOn,photo:photo||before.data.photo});
+  if(['sale','purchase'].includes(before.kind)){
+   if(before.data.separateCurrencies&&(plan.amount!=null||plan.items||plan.currency))throw new PulError('Aralash valyutali yozuv summasini o‘zgartirish uchun uni bekor qilib qayta kiriting. Har bir valyuta alohida saqlanadi.');
+   data=saleData(plan,before.data);Object.assign(data,{vendorName:before.data.vendorName,occurredOn:before.data.occurredOn,photo:photo||before.data.photo});
    if(plan.vendor||plan.financed_amount!=null)throw new PulError('Provayder shartlarini o‘zgartirish uchun sotuvni bekor qilib, qayta kiriting.');
-   if(data.totalMinor<(data.financedMinor||0)+paidTo(records,before.id))throw new PulError('Narx to‘langan va moliyalashtirilgan summadan kam bo‘lolmaydi.');
+   if(before.kind==='sale'&&remaining({...before,data},records)>0&&!data.customer)throw new PulError('Qarz uchun mijoz ismini kiriting.');
+   if(before.kind==='purchase'&&data.totalMinor!==before.data.totalMinor&&paidTo(records,before.id,'shop')>0)throw new PulError('Xarid summasi va chiqimlarni birga tuzatish uchun yozuvni bekor qilib qayta kiriting.');
+   if(before.kind==='purchase'&&data.items.some(i=>i.type!=='product'))throw new PulError('Xarid faqat mahsulot bo‘lishi mumkin.');
+   if(data.totalMinor<(data.financedMinor||0)+paidTo(records,before.id,before.kind==='purchase'?'shop':'customer'))throw new PulError('Narx to‘langan va moliyalashtirilgan summadan kam bo‘lolmaydi.');
   }else if(before.kind==='debt'){
    data={...before.data,...debtData(plan,before.data)};if(data.totalMinor<paidTo(records,before.id))throw new PulError('Qarz to‘langan summadan kam bo‘lolmaydi.');
   }else if(before.kind==='payment'){
    const parent=records.find(r=>r.id===before.reference_id&&!r.is_deleted);if(!parent)throw new PulError('Asosiy yozuv topilmadi.');
-   data={...before.data,...paymentData({amount:plan.amount??before.data.amountMinor/100,currency:plan.currency||before.data.currency,method:plan.method||before.data.method,exchange_rate:plan.payments?.[0]?.exchange_rate??before.data.exchangeRate},parent.data.currency,before.data.source)};
+   if(parent.data.separateCurrencies&&!before.data.isRepayment)throw new PulError('Aralash valyutali boshlang‘ich to‘lovni o‘zgartirish uchun asosiy yozuvni bekor qilib qayta kiriting.');
+   data={...before.data,...paymentData({amount:plan.amount??before.data.amountMinor/100,currency:plan.currency||before.data.currency,method:plan.method||before.data.method},parent.data.currency,before.data.source)};
+   if(data.isRepayment&&data.currency!==parent.data.currency)throw new PulError('Qarz to‘lovini qarz valyutasida kiriting.');
    const available=(data.source==='vendor'?parent.data.expectedVendorMinor:parent.data.totalMinor-(parent.data.financedMinor||0))-paidTo(records,parent.id,data.source,before.id);
-   if(data.settledMinor>available)throw new PulError('To‘lov qolgan summadan oshib ketdi.');
-  }else{data={...before.data,...vendorData({...plan,vendor:plan.vendor||before.data.vendor,percentage:plan.percentage??before.data.percentage,rate_type:plan.rate_type||before.data.rateType})};if(records.some(r=>r.kind==='vendor'&&!r.is_deleted&&r.id!==before.id&&r.data.vendor.toLocaleLowerCase()===data.vendor.toLocaleLowerCase()))throw new PulError('Bu nomli provayder mavjud.');}
+   if(parent.data.separateCurrencies&&data.isRepayment){const without=records.filter(r=>r.id!==before.id);if(data.settledMinor>remaining(parent,without))throw new PulError('To‘lov qolgan qarzdan oshib ketdi.');}
+   if(!parent.data.separateCurrencies&&data.settledMinor!=null&&data.settledMinor>available)throw new PulError('To‘lov qolgan summadan oshib ketdi.');
+  }else{data={...before.data,...vendorData({...plan,vendor:plan.vendor||before.data.vendor})};if(records.some(r=>r.kind==='vendor'&&!r.is_deleted&&r.id!==before.id&&r.data.vendor.toLocaleLowerCase()===data.vendor.toLocaleLowerCase()))throw new PulError('Bu nomli provayder mavjud.');}
   if(data.currency!==before.data.currency&&(before.data.financedMinor||records.some(r=>r.reference_id===before.id)))throw new PulError('To‘lovlari bor yozuvning valyutasini o‘zgartirib bo‘lmaydi.');
   if(plan.action==='remind'){
    if(!['sale','debt'].includes(before.kind))throw new PulError('Eslatma faqat qarz yoki sotuvga qo‘yiladi.');
    if(!plan.reminder_date&&!plan.due_date)throw new PulError('Eslatma sanasini ayting.');
   }
  }else if(plan.action==='delete'){
-  if(records.some(r=>r.reference_id===before.id&&!r.is_deleted))throw new PulError('Avval ushbu yozuvga tegishli to‘lovlarni sabab bilan bekor qiling.');
+  if(before.kind==='payment'&&before.data.source!=='shop'&&before.data.source!=='vendor'){const parent=records.find(r=>r.id===before.reference_id);if(parent&&['sale','debt'].includes(parent.kind)&&!parent.data.customer)throw new PulError('To‘lovni bekor qilishdan oldin qarz egasi — mijoz ismini asosiy yozuvga kiriting.');}
+  if(before.kind==='payment'&&!before.data.isRepayment){const parent=records.find(r=>r.id===before.reference_id);if(parent?.data.separateCurrencies)throw new PulError('Aralash valyutali boshlang‘ich to‘lovni alohida bekor qilmang. Asosiy yozuvni bekor qilib, qayta kiriting.');}
+  if(!before.data.separateCurrencies&&records.some(r=>r.reference_id===before.id&&!r.is_deleted))throw new PulError('Avval ushbu yozuvga tegishli to‘lovlarni sabab bilan bekor qiling.');
  }else if(plan.action==='restore'){
+  if(['sale','debt'].includes(before.kind)&&remaining(before,records)>0&&!data.customer){if(!plan.customer?.trim())throw new PulError('Qarzni tiklash uchun mijoz ismini ayting.');data.customer=plan.customer.trim();}
   if(before.kind==='vendor'&&records.some(r=>r.kind==='vendor'&&!r.is_deleted&&r.data.vendor.toLocaleLowerCase()===before.data.vendor.toLocaleLowerCase()))throw new PulError('Bu nomli faol provayder mavjud.');
   if(before.kind==='payment'){
    const parent=records.find(r=>r.id===before.reference_id&&!r.is_deleted);if(!parent)throw new PulError('Avval asosiy yozuvni tiklang.');
-   const available=data.source==='vendor'?providerRemaining(parent,records):remaining(parent,records);if(data.settledMinor>available)throw new PulError('Tiklash qoldiqdan oshib ketadi.');
+   const available=data.source==='vendor'?providerRemaining(parent,records):data.source==='shop'?parent.data.totalMinor-paidTo(records,parent.id,'shop'):remaining(parent,records);if(!(parent.data.separateCurrencies&&!data.isRepayment)&&data.settledMinor!=null&&data.settledMinor>available)throw new PulError('Tiklash qoldiqdan oshib ketadi.');
   }
  }else throw new PulError('Bu amal qo‘llanmaydi.');
  return {kind:before.kind,data,before,payments:[],action:plan.action,reason:plan.reason};
 }
 async function apply(tx,ctx,p,today){
+ if(p.action==='delete'&&p.before?.data.separateCurrencies){for(const payment of (await pulRows(tx,ctx.shopId)).filter(r=>r.reference_id===p.before.id&&!r.is_deleted))await savePulRecord(tx,ctx,{before:payment,kind:'payment',data:payment.data,deleted:true,reason:p.reason,action:'delete'});}
  const row=await savePulRecord(tx,ctx,{before:p.before,kind:p.kind,data:{...p.data,occurredOn:p.data.occurredOn||today},referenceId:p.target?.id,deleted:p.action==='delete',reason:p.reason,action:p.action==='delete'?'delete':p.action==='restore'?'restore':p.before?'edit':'create'});
  for(const payment of p.payments)await savePulRecord(tx,ctx,{kind:'payment',referenceId:row.id,data:{...payment,customer:p.data.customer,isRepayment:false,occurredOn:today}});
  return row;
@@ -202,18 +239,20 @@ function review(draft){
  const p=draft.prepared,d=p.data,lines=[`${actions[draft.plan.action]||'Amal'} — tekshiring:`,...(p.before?[`ID: ${p.before.id}`]:[])];
  if(d.customer)lines.push(`Mijoz: ${d.customer}`);if(d.phone)lines.push(`Telefon: ${d.phone}`);
  if(d.items)lines.push(...d.items.map(i=>`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity} · ${money(i.unitMinor,d.currency)}`));
+ if(d.separateCurrencies)lines.push('USD va UZS alohida saqlanadi. Konvertatsiya qilinmaydi.');
  if(d.description)lines.push(`Izoh: ${d.description}`);
  if(d.totalMinor!=null)lines.push(`Summa: ${money(d.totalMinor,d.currency)}`);
- if(p.kind==='payment')lines.push(`To‘lov: ${money(d.amountMinor,d.currency)}`,`Usul: ${methods[d.method]}`,`Hisobdan yopiladi: ${money(d.settledMinor,d.targetCurrency)}`,`Manba: ${d.source==='vendor'?'Provayder':'Mijoz'}`);
+ if(p.kind==='payment')lines.push(`To‘lov: ${money(d.amountMinor,d.currency)}`,`Usul: ${methods[d.method]}`,...(d.settledMinor!=null?[`Hisobdan yopiladi: ${money(d.settledMinor,d.targetCurrency)}`]:[]),`Manba: ${d.source==='shop'?'Do‘kon → mijoz':d.source==='vendor'?'Provayder':'Mijoz'}`);
  for(const payment of p.payments)lines.push(`To‘lov: ${money(payment.amountMinor,payment.currency)} · ${methods[payment.method]}`);
- if(d.financedMinor)lines.push(`Provayder: ${d.vendorName}`,`Moliyalashtirilgan: ${money(d.financedMinor,d.currency)}`,`Provayderdan kutiladi: ${money(d.expectedVendorMinor,d.currency)}`);
- if(p.kind==='sale'&&!p.before)lines.push(`Qarz: ${money(d.totalMinor-(d.financedMinor||0)-p.payments.reduce((s,x)=>s+x.settledMinor,0),d.currency)}`);
+ if(d.financedMinor)lines.push(`Provayder: ${d.vendorName}`,`Moliyalashtirilgan: ${money(d.financedMinor,d.currency)}`);
+ if(p.kind==='sale'&&!p.before)lines.push(`Qarz: ${money(d.separateCurrencies?d.openingDebtMinor:d.totalMinor-(d.financedMinor||0)-p.payments.reduce((s,x)=>s+(x.settledMinor||0),0),d.currency)}`);
  if(d.dueDate)lines.push(`To‘lov muddati: ${d.dueDate}`);if(d.reminderDate)lines.push(`Eslatma: ${d.reminderDate}`);
- if(p.kind==='vendor')lines.push(`Provayder: ${d.vendor}`,`Foiz: ${d.percentage}% · ${d.rateType}`);
+ if(p.kind==='vendor')lines.push(`Provayder: ${d.vendor}`);
+ if(p.kind==='purchase'||d.source==='shop')lines.push('Yo‘nalish: pul chiqimi (mijozdan xarid)');
  if(p.reason)lines.push(`Sabab: ${p.reason}`);if(d.photo)lines.push('Rasm: biriktirilgan');
  lines.push('\nHali saqlanmadi. Tasdiqlaysizmi?');
  const rows=[[{text:'Tasdiqlash',style:'success',callback_data:`pul_confirm:${draft.token}`},{text:'Tahrirlash',callback_data:`pul_edit:${draft.token}`}]];
- if(p.kind==='sale'&&['sale','edit'].includes(draft.plan.action))rows.push([{text:d.photo?'Rasmni almashtirish':'Rasm qo‘shish',style:'primary',callback_data:`pul_photo:${draft.token}`}]);
+ if(['sale','purchase'].includes(p.kind)&&['sale','purchase','edit'].includes(draft.plan.action))rows.push([{text:d.photo?'Rasmni almashtirish':'Rasm qo‘shish',style:'primary',callback_data:`pul_photo:${draft.token}`}]);
  rows.push([{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]);
  if(lines.join('\n').length>3800)throw new PulError('Buyruq juda uzun. Mahsulotlarni kichikroq guruhlarga bo‘lib kiriting.');
  return {text:lines.join('\n'),reply_markup:{inline_keyboard:rows}};

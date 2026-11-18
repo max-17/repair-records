@@ -15,3 +15,6 @@ library-files/ui-review/
 # Local business discovery notes
 /BUSINESS-NOTES.md
 /BUSINESS-REPORT-UZ.md
+
+# Local live AI evaluation reports
+/library-files/ai-tests/

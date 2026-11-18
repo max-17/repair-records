@@ -76,3 +76,15 @@ test('repair voice review shows extracted fields and executes the reviewed plan 
  assert.equal((await db.execute('SELECT * FROM repair_jobs')).rows.length,0);
  const saved=await voiceRun({...base,requestId:'confirm',text:`/voiceuse ${reviewed.draft.token}`});assert.equal(saved.kind,'created');assert.equal(parses,1);assert.equal(saved.repair.price_uzs,500000);
 }));
+test('repair confirmation links original audio and corrected text to the same event',()=>withDb(async db=>{
+ const {audioArchive}=await import('../src/pul-sources.js');
+ const command=commandService({db,parse:async()=>({...blank,action:'create',customer:'Ali',device:'Redmi',work:'Ekran',price_uzs:300000})});
+ const run=voiceService({db,archiveAudio:audioArchive({}),transcribeVoice:async(_v,c)=>{await c.archiveAudio(Buffer.from('OggS'));return 'original';},previewCommand:i=>command({...i,previewOnly:true}),runCommand:command});
+ const base={masterId:'main',conversationId:'chat',receivedBy:'7',chatId:7};
+ const first=await run({...base,requestId:'a',messageId:1,voice});
+ await run({...base,requestId:'b',text:`/voiceedit ${first.draft.token}`});
+ const edited=await run({...base,requestId:'c',messageId:3,text:'corrected command'});
+ await run({...base,requestId:'d',text:`/voiceuse ${edited.draft.token}`});
+ const rows=(await db.execute('SELECT s.* FROM repair_event_sources l JOIN pul_sources s ON l.source_id=s.id ORDER BY l.position')).rows;
+ assert.equal(rows.length,2);assert.equal(rows[0].kind,'audio');assert.equal(rows[1].original_text,'corrected command');
+}));

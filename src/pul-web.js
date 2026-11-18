@@ -1,3 +1,4 @@
+import {sourceDetails} from './pul-sources.js';
 import {setupStaff} from './staff-auth.js';
 import {pulRows} from './pul-db.js';
 import {remaining,providerRemaining,validDate} from './pul-domain.js';
@@ -11,19 +12,21 @@ export async function pulWebOverview(db,shopId,filters={}){
  const names=Object.fromEntries(workers.map(w=>[w.id,w.name]));
  const start=filters.start,end=filters.end;
  if(!validDate(start)||!validDate(end)||start>end||(Date.parse(end)-Date.parse(start))/86400000>366)throw new Error('INVALID_PERIOD');
- const decorate=r=>({id:r.id,kind:r.kind,workerId:r.worker_id,workerName:names[r.worker_id]||r.worker_id,referenceId:r.reference_id,isDeleted:r.is_deleted,version:r.version,createdAt:r.created_at,updatedAt:r.updated_at,data:{...r.data,photo:undefined},hasPhoto:!!r.data.photo,remaining:['sale','debt'].includes(r.kind)?remaining(r,rows):null,vendorRemaining:r.kind==='sale'?providerRemaining(r,rows):null});
+ const decorate=r=>({id:r.id,kind:r.kind,workerId:r.worker_id,workerName:names[r.worker_id]||r.worker_id,referenceId:r.reference_id,isDeleted:r.is_deleted,version:r.version,createdAt:r.created_at,updatedAt:r.updated_at,data:{...r.data,photo:undefined},hasPhoto:!!r.data.photo,remaining:['sale','debt'].includes(r.kind)?remaining(r,rows):null,vendorRemaining:null});
  const period=rows.filter(r=>!r.is_deleted&&(!filters.worker||r.worker_id===filters.worker)&&r.data.occurredOn>=start&&r.data.occurredOn<=end);
  const groups=new Map(),workerGroups=new Map(),days=new Map();
- const empty=(currency)=>({currency,sales:0,salesCount:0,received:0,repayments:0,vendorReceived:0,cash:0,card:0,transfer:0,outstanding:0,overdue:0,vendorPending:0});
+ const empty=(currency)=>({currency,sales:0,salesCount:0,received:0,repayments:0,financed:0,outgoing:0,purchases:0,cash:0,card:0,transfer:0,outstanding:0,overdue:0,});
  for(const r of period){
   const currency=r.data.currency,g=groups.get(currency)||empty(currency),key=r.worker_id+':'+currency,w=workerGroups.get(key)||{...empty(currency),workerId:r.worker_id,workerName:names[r.worker_id]||r.worker_id};
   const dk=r.data.occurredOn+':'+currency,day=days.get(dk)||{date:r.data.occurredOn,currency,sales:0,received:0};
-  if(r.kind==='sale'){g.sales+=r.data.totalMinor;g.salesCount++;w.sales+=r.data.totalMinor;w.salesCount++;day.sales+=r.data.totalMinor;}
-  if(r.kind==='payment'){for(const x of [g,w]){x.received+=r.data.amountMinor;x[r.data.method]+=r.data.amountMinor;if(r.data.source==='vendor')x.vendorReceived+=r.data.amountMinor;else if(r.data.isRepayment)x.repayments+=r.data.amountMinor;}day.received+=r.data.amountMinor;}
+  if(r.kind==='purchase'){g.purchases+=r.data.totalMinor;w.purchases+=r.data.totalMinor;}
+  if(r.kind==='sale'){g.financed+=r.data.financedMinor||0;w.financed+=r.data.financedMinor||0;g.sales+=r.data.totalMinor;g.salesCount++;w.sales+=r.data.totalMinor;w.salesCount++;day.sales+=r.data.totalMinor;}
+  if(r.kind==='payment'&&r.data.source==='shop'){g.outgoing+=r.data.amountMinor;w.outgoing+=r.data.amountMinor;day.outgoing=(day.outgoing||0)+r.data.amountMinor;}
+  if(r.kind==='payment'&&r.data.source!=='shop'){for(const x of [g,w]){x.received+=r.data.amountMinor;x[r.data.method]+=r.data.amountMinor;if(r.data.isRepayment)x.repayments+=r.data.amountMinor;}day.received+=r.data.amountMinor;}
   groups.set(currency,g);workerGroups.set(key,w);days.set(dk,day);
  }
  const today=filters.today;
- for(const r of rows.filter(r=>!r.is_deleted&&['sale','debt'].includes(r.kind)&&(!filters.worker||r.worker_id===filters.worker))){const g=groups.get(r.data.currency)||empty(r.data.currency),left=remaining(r,rows);g.outstanding+=left;if(r.data.dueDate&&r.data.dueDate<today)g.overdue+=left;if(r.kind==='sale')g.vendorPending+=providerRemaining(r,rows);groups.set(r.data.currency,g);}
+ for(const r of rows.filter(r=>!r.is_deleted&&['sale','debt'].includes(r.kind)&&(!filters.worker||r.worker_id===filters.worker))){const g=groups.get(r.data.currency)||empty(r.data.currency),left=remaining(r,rows);g.outstanding+=left;if(r.data.dueDate&&r.data.dueDate<today)g.overdue+=left;groups.set(r.data.currency,g);}
  let matches=rows.filter(r=>(filters.status==='all'||r.is_deleted===(filters.status==='deleted'))&&(!filters.worker||r.worker_id===filters.worker));
  if(filters.kind==='owed')matches=matches.filter(r=>['sale','debt'].includes(r.kind)&&remaining(r,rows)>0);
  else if(filters.kind==='service')matches=matches.filter(r=>r.kind==='sale'&&r.data.items?.some(i=>i.type==='service'));
@@ -37,5 +40,5 @@ export async function pulWebOverview(db,shopId,filters={}){
 export async function pulWebDetail(db,shopId,id){
  const rows=await pulRows(db,shopId),row=rows.find(r=>r.id===id);if(!row)return null;
  const history=(await db.execute({sql:'SELECT id,action,user_id,user_name,occurred_at,before_json,after_json,reason FROM pul_history WHERE shop_id=? AND record_id=? ORDER BY occurred_at DESC,id DESC LIMIT 100',args:[shopId,id]})).rows.map(e=>({id:e.id,action:e.action,actor:e.user_name,at:e.occurred_at,reason:e.reason,before:e.before_json?JSON.parse(e.before_json).data:null,after:JSON.parse(e.after_json).data}));
- return {record:{...row,data:{...row.data,photo:undefined},hasPhoto:!!row.data.photo,remaining:['sale','debt'].includes(row.kind)?remaining(row,rows):null,vendorRemaining:row.kind==='sale'?providerRemaining(row,rows):null},payments:rows.filter(r=>r.reference_id===id).map(r=>({...r,data:{...r.data,photo:undefined}})),history:history.map(e=>({...e,before:e.before?{...e.before,photo:e.before.photo?'[rasm]':null}:null,after:{...e.after,photo:e.after.photo?'[rasm]':null}}))};
+ return {sources:await sourceDetails(db,shopId,id),record:{...row,data:{...row.data,photo:undefined},hasPhoto:!!row.data.photo,remaining:['sale','debt'].includes(row.kind)?remaining(row,rows):null,vendorRemaining:row.kind==='sale'?providerRemaining(row,rows):null},payments:rows.filter(r=>r.reference_id===id).map(r=>({...r,data:{...r.data,photo:undefined}})),history:history.map(e=>({...e,before:e.before?{...e.before,photo:e.before.photo?'[rasm]':null}:null,after:{...e.after,photo:e.after.photo?'[rasm]':null}}))};
 }

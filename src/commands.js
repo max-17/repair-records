@@ -1,3 +1,4 @@
+import {sourceFor} from './pul-sources.js';
 import {generateText, Output} from 'ai';
 import {createGoogle} from '@ai-sdk/google';
 import {z} from 'zod';
@@ -48,7 +49,7 @@ function where(plan,masterId){
  return {sql:clauses.join(' AND '),args};
 }
 export function commandService({db,parse,now=()=>Date.now()}) {
- return async({text,requestId,masterId,conversationId=null,commandTime=null,receivedBy=null,receivedByName=null,previewOnly=false,preparedPlan=null,expectedRevision=null})=>{
+ return async({text,requestId,masterId,conversationId=null,commandTime=null,receivedBy=null,receivedByName=null,previewOnly=false,preparedPlan=null,expectedRevision=null,sourceIds=[],messageId=null,chatId=null,receivedAt=null})=>{
   const hash=createHash('sha256').update(conversationId?JSON.stringify({text,conversationId}):text).digest('hex');
   const previous=await db.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,requestId]});
   if(previous.rows.length){if(previous.rows[0].input_hash!==hash)throw new Error('REQUEST_CONFLICT');return JSON.parse(previous.rows[0].result_json);}
@@ -82,6 +83,8 @@ export function commandService({db,parse,now=()=>Date.now()}) {
   }
   if(expectedRevision!=null&&Number(memory?.revision||0)!==expectedRevision)return {kind:'expired_button',reply:'Suhbatdagi ma’lumot o‘zgargan. Buyruqni qayta yuboring.'};
 
+  if(!sourceIds.length&&!text.startsWith('/'))sourceIds=[await sourceFor(db,{shopId:`repair:${masterId}`,requestId,userId:String(receivedBy||masterId),now:now()},{text,messageId,chatId,receivedAt},null,null)];
+  sourceIds=[...new Set([...((state.pending||state.confirmation||state.selection)?state.sourceIds||[]:[]),...sourceIds])];
   const tx=await db.transaction('write');
   try {
    const prior=await tx.execute({sql:'SELECT input_hash,result_json FROM command_requests WHERE master_id=? AND request_id=?',args:[masterId,requestId]});
@@ -105,7 +108,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
     else {
      const changes=Object.entries(p.changes);
      const updated=await tx.execute({sql:`UPDATE repair_jobs SET ${changes.map(([k])=>`${k}=?`).join(',')},updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND master_id=? RETURNING *`,args:[...changes.map(([,v])=>v),row.id,masterId]});
-     await auditRepair(tx,{masterId,requestId,actorId:conversationId||`api:${masterId}`,before:row,after:updated.rows[0]});
+     await auditRepair(tx,{masterId,requestId,sourceIds,actorId:conversationId||`api:${masterId}`,before:row,after:updated.rows[0]});
      result={kind:'updated',repair:updated.rows[0],reply:'✅ Yangilandi\n'+receipt(updated.rows[0])};
     }
    } else if(handleSelection){
@@ -116,7 +119,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
      const row=found.rows[0];
      const changes=Object.entries(state.selection.changes);
      const updated=await tx.execute({sql:`UPDATE repair_jobs SET ${changes.map(([k])=>`${k}=?`).join(',')},updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND master_id=? RETURNING *`,args:[...changes.map(([,v])=>v),row.id,masterId]});
-     await auditRepair(tx,{masterId,requestId,actorId:conversationId||`api:${masterId}`,before:row,after:updated.rows[0]});
+     await auditRepair(tx,{masterId,requestId,sourceIds,actorId:conversationId||`api:${masterId}`,before:row,after:updated.rows[0]});
      result={kind:'updated',repair:updated.rows[0],reply:'✅ Yangilandi\n'+receipt(updated.rows[0])};
     }
    }
@@ -130,7 +133,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
     }
     else {
      const saved=await tx.execute({sql:'INSERT INTO repair_jobs (id,master_id,request_id,customer,device,work,price_uzs,due_date,status,received_by,received_by_name,technician) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *',args:[randomUUID(),masterId,requestId,plan.customer,plan.device,plan.work,plan.price_uzs,plan.due_date,'received',receivedBy||masterId,receivedByName||receivedBy||masterId,plan.technician??null]});
-     await auditRepair(tx,{masterId,requestId,actorId:conversationId||`api:${masterId}`,after:saved.rows[0]});
+     await auditRepair(tx,{masterId,requestId,sourceIds,actorId:conversationId||`api:${masterId}`,after:saved.rows[0]});
      result={kind:'created',repair:saved.rows[0],reply:'✅ Saqlandi\n'+receipt(saved.rows[0])};
     }
    }
@@ -152,7 +155,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
       if(!changes.length)result={kind:'clarify',reply:'Buyurtmada nimani o‘zgartirish kerakligini yozing.'};
       else {
        const updated=await tx.execute({sql:`UPDATE repair_jobs SET ${changes.map(([k])=>`${k}=?`).join(',')},updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND master_id=? RETURNING *`,args:[...changes.map(([,v])=>v),matches.rows[0].id,masterId]});
-       await auditRepair(tx,{masterId,requestId,actorId:conversationId||`api:${masterId}`,before:matches.rows[0],after:updated.rows[0]});
+       await auditRepair(tx,{masterId,requestId,sourceIds,actorId:conversationId||`api:${masterId}`,before:matches.rows[0],after:updated.rows[0]});
        result={kind:'updated',repair:updated.rows[0],reply:'✅ Yangilandi\n'+receipt(updated.rows[0])};
       }
      }
@@ -173,6 +176,7 @@ export function commandService({db,parse,now=()=>Date.now()}) {
    if(!result)throw new Error('INVALID_PLAN');
    if(conversationId){
     const updated=nextState(state,plan,result,text,timing.current_message_at,timing);
+    if(!reset&&(updated.pending||updated.confirmation||updated.selection))updated.sourceIds=sourceIds;else delete updated.sourceIds;
     await tx.execute({sql:'INSERT INTO conversation_state(master_id,conversation_id,state_json,revision) VALUES(?,?,?,?) ON CONFLICT(master_id,conversation_id) DO UPDATE SET state_json=excluded.state_json,revision=excluded.revision',args:[masterId,conversationId,JSON.stringify(updated),Number(memory?.revision??0)+1]});
    }
    await tx.execute({sql:'INSERT INTO command_requests(master_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[masterId,requestId,hash,JSON.stringify(result)]});

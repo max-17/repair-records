@@ -45,18 +45,18 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
      if(menu.section!=='repair'){
       if(callback&&!callback.data.startsWith('pul_'))return {text:'Bu tugma boshqa bo‘limga tegishli. Buyruqni qayta yuboring.'};
       if(!runPul)return {text:'Pul xizmati sozlanmagan.'};
-      return runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:msg.text,voice:msg.voice,photo:msg.photo?.at(-1)?.file_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
+      return runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,messageId:msg.message_id,text:msg.text,voice:msg.voice,photo:msg.photo?.at(-1)?.file_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
      }
      if(callback?.data.startsWith('pul_'))return {text:'Bu tugma Pul bo‘limiga tegishli.',reply_markup:sectionButtons('pul')};
     }
     if(runVoice){
-     const speech=await runVoice({masterId,conversationId,requestId:`telegram:${update.update_id}`,voice:msg.voice,text:msg.text,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
+     const speech=await runVoice({messageId:msg.message_id,chatId:msg.chat.id,masterId,conversationId,requestId:`telegram:${update.update_id}`,voice:msg.voice,text:msg.text,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
      if(speech)return telegramPresentation(speech);
     }
     if(!msg.text)return {text:'Ovozli xabar yoki matn yuboring.'};
     if(clearVoice)await clearVoice({masterId,conversationId,receivedBy,receivedByName});
     if(msg.text.length>3000)return {text:'Xabar juda uzun. 3000 belgigacha yozing.'};
-    const result=await runCommand({text:['/start','/new'].includes(msg.text)?'/new':msg.text,requestId:`telegram:${update.update_id}`,masterId,conversationId,receivedBy,receivedByName});
+    const result=await runCommand({messageId:callback?null:msg.message_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,text:['/start','/new'].includes(msg.text)?'/new':msg.text,requestId:`telegram:${update.update_id}`,masterId,conversationId,receivedBy,receivedByName});
     if(msg.text==='/start')return {text:'Salom! Buyurtma yozing yoki hisobot so‘rang. Aniqlashtiruvchi savolga qisqa javob berishingiz mumkin. Aniq buyruqlar darhol bajariladi; bir nechta buyurtma topilsa, tugmadan tanlang.\nYangi suhbat: /new. Ovozli xabarlar matnga aylantiriladi. Ma’lumotlarni tekshirib, Tasdiqlash tugmasini bosing; Tahrirlash yoki Bekor qilish ham mumkin.'};
     return telegramPresentation(result);
    };
