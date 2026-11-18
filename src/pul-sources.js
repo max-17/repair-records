@@ -20,6 +20,7 @@ export function archiveFailureCode(error){
  if(/quota|storage limit|insufficient.*(?:storage|credit)/i.test(message))return 'archive_quota_exceeded';
  return 'archive_upload_failed';
 }
+export function createArchiveClient(env,{fetcher}={}){return new UTApi({token:env.UPLOADTHING_TOKEN,logLevel:'Error',...(fetcher?{fetch:fetcher}:{})});}
 function archiveError(code,message='SOURCE_UPLOAD_FAILED'){return Object.assign(new Error(message),{code});}
 export function audioArchive(env,{api}={}){
  return async(bytes,requestId)=>{
@@ -29,7 +30,7 @@ export function audioArchive(env,{api}={}){
   const sealed=sealArchive(bytes,env);
   let result;
   try{
-   const client=api||new UTApi({token:env.UPLOADTHING_TOKEN,logLevel:'error'});
+   const client=api||createArchiveClient(env);
    const file=new UTFile([sealed.bytes],`${createHash('sha256').update(requestId).digest('hex')}.bin`,{type:'application/octet-stream',customId:`evidence-${randomUUID()}`});
    result=await client.uploadFiles(file,{contentDisposition:'attachment'});
   }catch(error){throw archiveError(archiveFailureCode(error));}
