@@ -26,6 +26,7 @@ export function paymentData(input,currency,source='customer'){
  if(!Number.isSafeInteger(settledMinor)||settledMinor>1e14)throw new PulError('To‘lov miqdori juda katta.');
  return {amountMinor,currency:actual,method:input.method,exchangeRate:rate,settledMinor,targetCurrency:currency,source};
 }
+const optionalContact=value=>typeof value==='string'?(value.trim()||null):null;
 export function saleData(plan,previous){
  const currency=plan.currency||previous?.currency||'UZS';
  const items=plan.items?plan.items.map(i=>({name:i.name,type:i.type,quantity:i.quantity,unitMinor:minor(i.unit_price)})):previous?.items?.map(i=>({...i}));
@@ -34,12 +35,12 @@ export function saleData(plan,previous){
  const subtotal=items.reduce((s,i)=>s+i.unitMinor*i.quantity,0);
  const totalMinor=plan.amount!=null?minor(plan.amount):plan.items?subtotal:previous.totalMinor;
  if(totalMinor<=0||!Number.isSafeInteger(totalMinor)||totalMinor>1e14||totalMinor>subtotal)throw new PulError('Umumiy narxni va mahsulot narxlarini tekshiring.');
- return {items,totalMinor,currency,customer:plan.customer??previous?.customer??null,phone:plan.phone??previous?.phone??null,description:plan.description??previous?.description??null,dueDate:checkDate(plan.due_date??previous?.dueDate),reminderDate:checkDate(plan.reminder_date??previous?.reminderDate),financedMinor:previous?.financedMinor||0,vendorId:previous?.vendorId||null,expectedVendorMinor:previous?.expectedVendorMinor||0,photo:previous?.photo||null};
+ return {items,totalMinor,currency,customer:optionalContact(plan.customer??previous?.customer),phone:optionalContact(plan.phone??previous?.phone),description:plan.description??previous?.description??null,dueDate:checkDate(plan.due_date??previous?.dueDate),reminderDate:checkDate(plan.reminder_date??previous?.reminderDate),financedMinor:previous?.financedMinor||0,vendorId:previous?.vendorId||null,expectedVendorMinor:previous?.expectedVendorMinor||0,photo:previous?.photo||null};
 }
 export function debtData(plan,previous){
- const customer=plan.customer??previous?.customer;if(!customer)throw new PulError('Mijoz ismini ayting.');
+ const customer=optionalContact(plan.customer??previous?.customer);
  const totalMinor=plan.amount==null?previous?.totalMinor:minor(plan.amount);if(!(totalMinor>0))throw new PulError('Qarz summasini ayting.');
- return {customer,phone:plan.phone??previous?.phone??null,totalMinor,currency:plan.currency||previous?.currency||'UZS',description:plan.description??previous?.description??'Qarz',dueDate:checkDate(plan.due_date??previous?.dueDate),reminderDate:checkDate(plan.reminder_date??previous?.reminderDate)};
+ return {customer,phone:optionalContact(plan.phone??previous?.phone),totalMinor,currency:plan.currency||previous?.currency||'UZS',description:plan.description??previous?.description??'Qarz',dueDate:checkDate(plan.due_date??previous?.dueDate),reminderDate:checkDate(plan.reminder_date??previous?.reminderDate)};
 }
 export function vendorData(plan){if(!plan.vendor||plan.percentage==null||!plan.rate_type)throw new PulError('Provayder nomi, foizi va turi kerak: komissiya yoki ustama.');return {vendor:plan.vendor,percentage:plan.percentage,rateType:plan.rate_type};}
 export function reportText(records,{start,end,userNames={},workerId=null,title='Pul hisoboti'}){

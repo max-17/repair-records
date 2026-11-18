@@ -140,7 +140,6 @@ function prepare(plan,records,ctx,photo){
  if(plan.action==='sale'){
   const data=saleData(plan),payments=(plan.payments||[]).map(p=>paymentData(p,data.currency));
   if(plan.vendor){
-   if(!data.customer)throw new PulError('Provayder orqali savdo uchun mijoz ismi kerak.');
    const vendor=records.find(r=>r.kind==='vendor'&&!r.is_deleted&&r.data.vendor.toLocaleLowerCase()===plan.vendor.toLocaleLowerCase());
    if(!vendor)throw new PulError('Provayder topilmadi. Egasi avval nomi, foizi va turini qo‘shsin.');
    if(!(plan.financed_amount>0))throw new PulError('Provayder qoplaydigan summani ayting.');
@@ -149,7 +148,6 @@ function prepare(plan,records,ctx,photo){
   }else if(plan.financed_amount)throw new PulError('Muddatli to‘lov provayderini ayting.');
   const covered=payments.reduce((sum,p)=>sum+p.settledMinor,0)+data.financedMinor;
   if(covered>data.totalMinor)throw new PulError('To‘lov va provayder summasi sotuv narxidan oshib ketdi.');
-  if(covered<data.totalMinor&&!data.customer)throw new PulError('Qoldiq qarz uchun mijoz ismi kerak.');
   if(plan.payments===null&&!data.financedMinor)throw new PulError('Qancha to‘landi va qanday usulda? To‘liq qarz bo‘lsa, «hali to‘lamadi» deb ayting.');
   data.photo=photo||null;return {kind:'sale',data,before:null,payments};
  }

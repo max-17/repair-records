@@ -80,3 +80,21 @@ test('sale price edits retain before values in history and require confirmation 
  set({action:'edit',record_id:row.id,amount:600000});const review=await send();assert.match(review.text,/600/);assert.equal((await pulRows(db,'main')).find(r=>r.id===row.id).data.totalMinor,50000000);await confirm(review);
  const event=(await db.execute({sql:"SELECT before_json,after_json FROM pul_history WHERE record_id=? AND action='edit'",args:[row.id]})).rows[0];assert.equal(JSON.parse(event.before_json).data.items[0].unitMinor,50000000);assert.equal(JSON.parse(event.after_json).data.items[0].unitMinor,60000000);
 }));
+test('customer and phone are optional for paid sales, credit sales, debts and provider financing',()=>fixture(async({db,send,confirm,set})=>{
+ for(const payments of [[{amount:500000,currency:'UZS',method:'cash',exchange_rate:null}],[]]){
+  set({...sale,customer:null,phone:null,payments});const review=await send();assert.ok(review.reply_markup);await confirm(review);
+ }
+ set({action:'debt',amount:100000,currency:'UZS',customer:'   ',phone:''});await confirm(await send());let rows=await pulRows(db,'main');const debt=rows.find(r=>r.kind==='debt');assert.equal(debt.data.customer,null);assert.equal(debt.data.phone,null);
+ set({action:'pay',record_id:debt.id,amount:40000,currency:'UZS',method:'cash'});await confirm(await send());rows=await pulRows(db,'main');assert.equal(remaining(rows.find(r=>r.id===debt.id),rows),6000000);
+ set({action:'pay',amount:10,currency:'UZS',method:'cash'});assert.match((await send()).text,/ID/);
+ set({action:'vendor',vendor:'Optional contact vendor',percentage:0,rate_type:'commission'});await confirm(await send({},'42'),'42');
+ set({...sale,customer:null,phone:null,vendor:'Optional contact vendor',financed_amount:500000,payments:[]});await confirm(await send());rows=await pulRows(db,'main');
+ const sales=rows.filter(r=>r.kind==='sale');assert.equal(sales.length,3);assert.ok(sales.every(r=>r.data.customer===null&&r.data.phone===null));
+}));
+test('explicitly clearing optional contacts is audited while omitted contacts are preserved',()=>fixture(async({db,send,confirm,set})=>{
+ set({...sale,phone:'+998901234567'});await confirm(await send());const saleRow=(await pulRows(db,'main')).find(r=>r.kind==='sale');
+ set({action:'edit',record_id:saleRow.id,description:'Contact unchanged'});await confirm(await send());assert.equal((await pulRows(db,'main')).find(r=>r.id===saleRow.id).data.customer,'Bekzod');
+ set({action:'edit',record_id:saleRow.id,customer:'',phone:''});await confirm(await send());const after=(await pulRows(db,'main')).find(r=>r.id===saleRow.id);assert.equal(after.data.customer,null);assert.equal(after.data.phone,null);
+ const events=(await db.execute({sql:"SELECT before_json,after_json FROM pul_history WHERE record_id=? AND action='edit'",args:[saleRow.id]})).rows;
+ assert.ok(events.some(e=>JSON.parse(e.before_json).data.customer==='Bekzod'&&JSON.parse(e.after_json).data.customer===null));
+}));
