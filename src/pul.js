@@ -1,3 +1,4 @@
+import {numericProductPlan} from './pul-product-numbers.js';
 import {SpeechInputError} from './speech.js';
 import {AishaInputError} from './aisha.js';
 import {audioArchive,sourceFor} from './pul-sources.js';
@@ -92,7 +93,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
     const previous=draft&&['pending','editing','clarify'].includes(draft.phase)?draft.plan:null;
     const sourceIds=[...new Set([...(previous?draft.sourceIds||[]:[]),sourceId])];
     const quick=text==='/pul_report'?{action:'report'}:text==='/pul_debts'?{action:'list',record_kind:'debt'}:null;
-    const plan=pulPlanSchema.parse(quick?{...Object.fromEntries(Object.keys(pulPlanSchema.shape).map(k=>[k,k==='include_deleted'?false:null])),...quick}:await parse({text,previous,today:ctxDate,inactivitySeconds:draft?.at?Math.max(0,(ctx.now-draft.at)/1000):null,records:relevantRecords(records,text,previous).map(r=>({id:r.id,kind:r.kind,worker:r.worker_id,is_deleted:r.is_deleted,...r.data}))}));
+    const plan=numericProductPlan(pulPlanSchema.parse(quick?{...Object.fromEntries(Object.keys(pulPlanSchema.shape).map(k=>[k,k==='include_deleted'?false:null])),...quick}:await parse({text,previous,today:ctxDate,inactivitySeconds:draft?.at?Math.max(0,(ctx.now-draft.at)/1000):null,records:relevantRecords(records,text,previous).map(r=>({id:r.id,kind:r.kind,worker:r.worker_id,is_deleted:r.is_deleted,...r.data}))})));
     if(plan.action==='clarify'){
      next={token:randomUUID(),sourceIds,plan,phase:'clarify',at:commandTime};payload=incompleteReview(next,plan.question||'Mijoz, summa va amalni aniqroq ayting.');
     }else if(['list','report','history'].includes(plan.action)){
@@ -254,7 +255,6 @@ function review(draft){
  const p=draft.prepared,d=p.data,lines=[`${actions[draft.plan.action]||'Amal'} — tekshiring:`,...(p.before?[`ID: ${p.before.id}`]:[])];
  if(d.customer)lines.push(`Mijoz: ${d.customer}`);if(d.phone)lines.push(`Telefon: ${d.phone}`);
  if(d.items)lines.push(...d.items.map(i=>`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity} ${i.unitMinor==null?'': '· '+money(i.unitMinor,d.currency)}`));
- if(d.separateCurrencies)lines.push('USD va UZS alohida saqlanadi. Konvertatsiya qilinmaydi.');
  if(d.description)lines.push(`Izoh: ${d.description}`);
  if(d.totalMinor==null&&d.totalsByCurrency)lines.push('Jami (valyutalar alohida): '+Object.entries(d.totalsByCurrency).map(([c,n])=>money(n,c)).join(' + '));
  if(d.totalMinor!=null)lines.push(`Summa: ${money(d.totalMinor,d.currency)}`);

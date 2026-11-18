@@ -1,3 +1,4 @@
+import {numericProductName} from './pul-product-numbers.js';
 export class PulError extends Error{}
 export function minor(value){
  if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1e12)throw new PulError('Summani to‘g‘ri kiriting.');
@@ -29,7 +30,7 @@ export function paymentData(input,currency,source='customer'){
 const optionalContact=value=>typeof value==='string'?(value.trim()||null):null;
 export function saleData(plan,previous){
  const currency=plan.currency||previous?.currency||'UZS';
- const items=plan.items?plan.items.map(i=>({name:i.name,type:i.type,quantity:i.quantity,unitMinor:i.unit_price==null?null:minor(i.unit_price)})):previous?.items?.map(i=>({...i}));
+ const items=plan.items?plan.items.map(i=>({name:numericProductName(i.name),type:i.type,quantity:i.quantity,unitMinor:i.unit_price==null?null:minor(i.unit_price)})):previous?.items?.map(i=>({...i}));
  if(!items?.length)throw new PulError('Nima sotildi yoki qanday xizmat bajarildi?');
  if(plan.amount!=null&&!plan.items&&items.length===1&&items[0].quantity===1&&items[0].unitMinor!=null)items[0]={...items[0],unitMinor:minor(plan.amount)};
  const completePrices=items.every(i=>i.unitMinor!=null);
