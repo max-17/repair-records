@@ -10,3 +10,45 @@
 .pul-toolbar .search-box{width:auto}
 @media(max-width:650px){.admin-sidebar nav>a[href="/admin/staff"]{display:none}}
 .pul-table{position:relative}
+/* Shared shadcn form controls and responsive dialog/drawer frame. */
+.app-form-field{gap:7px;min-width:0}.app-form-field>[data-slot=field-label]{font-size:12px;font-weight:600;line-height:1.5;color:var(--foreground)}
+.app-form-field>.input,.app-form-select,.app-date-control{width:100%;min-height:44px;height:44px;border-radius:9px;font-size:14px}
+.app-form-select{padding:10px 12px;background:var(--surface)}.app-form-options{z-index:80;max-height:min(var(--available-height),320px)}
+.app-date-control{justify-content:flex-start;gap:10px;text-align:left;font-weight:400;background:var(--surface)}
+.app-date-popover{z-index:80;width:auto;max-width:calc(100vw - 24px);background:var(--raised);border:1px solid var(--border);border-radius:12px;padding:10px}
+.app-date-popover [data-slot=calendar]{width:100%;max-width:320px}
+.dialog-structured.dialog-popup{display:flex;flex-direction:column;padding:0;overflow:hidden;width:850px;height:min(820px,calc(100dvh - 48px));max-height:calc(100dvh - 48px)}
+.dialog-structured .app-dialog-header{flex-shrink:0;padding:24px 58px 18px 24px;border-bottom:1px solid var(--border)}
+.dialog-structured .app-dialog-header h2{font-size:22px;line-height:1.35;padding:0;margin:0}
+.dialog-structured .app-dialog-header p{font-size:12px;line-height:1.6;color:var(--muted-foreground);margin:7px 0 0}
+.dialog-structured .app-dialog-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:24px;scroll-padding-block:20px;touch-action:pan-y;user-select:text}
+.dialog-structured .app-dialog-footer{flex-shrink:0;display:flex;justify-content:flex-end;gap:10px;padding:16px 24px;background:var(--raised)}
+.dialog-structured .app-dialog-footer>.button{min-height:44px}
+.dialog-structured .pul-entry-form{margin:0;display:block}.pul-entry-fields{display:grid;gap:22px}
+.dialog-structured .pul-items{padding:0;border:0;border-radius:0;gap:14px;margin:0;min-width:0}
+.dialog-structured .pul-items>[data-slot=field-legend]{font-size:14px;font-weight:700;margin:0;padding:0}
+.dialog-structured .pul-item-row,.dialog-structured .pul-payment-row{padding:16px;background:var(--muted);border:1px solid var(--border);border-radius:10px;margin:0;min-width:0}
+.dialog-structured .pul-review{margin:0}.dialog-structured .pul-review pre{max-height:none;margin:0}.dialog-structured .pul-form-total{margin:0;padding:12px 0;font-size:15px}
+.dialog-structured .pul-check{display:flex;align-items:center;gap:12px;min-height:44px;font-size:13px}.dialog-structured .pul-check label{cursor:pointer;line-height:1.6}.dialog-structured .pul-check [data-slot=checkbox]{width:20px;height:20px}
+@media(max-width:760px){
+ .responsive-form-drawer.dialog-structured[data-slot=drawer-popup]{width:100%;max-width:100%;height:calc(var(--dialog-viewport-height,100dvh) - 12px);max-height:calc(var(--dialog-viewport-height,100dvh) - 12px);border-radius:18px 18px 0 0;padding:0;overflow:hidden}
+ .dialog-structured .app-dialog-header{padding:16px 54px 16px 20px}
+ .dialog-structured .app-dialog-header h2{font-size:20px;line-height:1.35}
+ .dialog-structured .app-dialog-body{padding:20px}
+ .dialog-structured .app-dialog-footer{padding:14px 20px max(14px,env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .dialog-structured .app-dialog-footer>.button{width:100%;font-size:13px;padding-inline:10px}
+ .dialog-structured .pul-entry-form>.pul-entry-fields>.form-row{grid-template-columns:1fr}
+ .dialog-structured .pul-item-row,.dialog-structured .pul-payment-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;padding:14px}
+ .dialog-structured .pul-item-row>.app-form-field:nth-child(1),.dialog-structured .pul-item-row>.app-form-field:nth-child(2){grid-column:1/-1}
+ .dialog-structured .pul-item-row>.button,.dialog-structured .pul-payment-row>.button{grid-column:1/-1;justify-self:end}
+ .dialog-structured .pul-payment-row>.app-form-field:nth-child(3){grid-column:1/-1}
+ .dialog-structured .app-form-field>.input,.dialog-structured .app-form-select{font-size:16px;min-height:46px;height:46px}
+ .dialog-structured .dialog-close{top:20px;right:12px}
+}
+.pul-filters>.app-form-field{width:auto;flex:0 1 165px}.pul-analytics-heading>.app-form-field{width:110px}
+.pul-table>[data-slot=table-container]{overflow-x:visible}.pul-tabs[data-slot=tabs-list]{width:100%;justify-content:flex-start;height:auto;padding:0;border-radius:0}.pul-tab-panel{min-width:0}
+.staff-permissions [data-slot=checkbox],.staff-inline [data-slot=checkbox]{width:18px;height:18px}
+@media(max-width:650px){.pul-filters>.app-form-field{width:100%;min-width:0}}
+.pul-toolbar>.search-box{flex-direction:row}.pul-toolbar>.search-box>.input{border:0;background:transparent;box-shadow:none;min-width:0;width:100%}
+.pul-filters{min-width:0}.pul-filters>.app-form-field>.app-date-control,.pul-filters>.app-form-field>.app-form-select{max-width:100%}
+.pul-workspace>[data-slot=tabs]{display:flex;flex-direction:column;width:100%;min-width:0}
