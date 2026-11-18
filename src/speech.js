@@ -26,7 +26,7 @@ function telegramTranscriber(env,{fetcher,check,recognize}){
   try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>MAX_BYTES)throw new SpeechInputError('Ovozli fayl 10 MB dan katta.');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
   if(!length)throw new SpeechInputError('Ovozli fayl bo‘sh. Qayta yozib yuboring.');
   const audio=Buffer.concat(chunks);
-  if(context?.archiveAudio){try{await context.archiveAudio(audio);}catch{throw new SpeechInputError('Ovozli xabarni arxivga saqlab bo‘lmadi. Amal bajarilmadi. Keyinroq qayta yuboring.');}}
+  if(context?.archiveAudio){try{await context.archiveAudio(audio);}catch(error){const messages={archive_not_configured:'Ovoz arxivi hali sozlanmagan. Administratorga murojaat qiling.',archive_private_access_denied:'Ovoz arxiviga maxfiy fayl saqlash ruxsati yo‘q. Administrator arxiv ruxsatlarini tekshirsin.',archive_auth_failed:'Ovoz arxivi kaliti yoki ruxsatlari noto‘g‘ri. Administratorga murojaat qiling.',archive_quota_exceeded:'Ovoz arxivi uchun saqlash limiti tugagan. Administratorga murojaat qiling.'};const code=Object.hasOwn(messages,error?.code)?error.code:'archive_upload_failed';throw Object.assign(new SpeechInputError((messages[code]||'Ovozli xabarni arxivga saqlab bo‘lmadi. Keyinroq qayta yuboring.')+' Hali amal bajarilmadi.'),{code});}}
   return recognize(audio,context,voice);
  }; 
 }

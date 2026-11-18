@@ -279,3 +279,7 @@ In **/admin/staff**, the owner assigns roles/access and creates invitation links
 No `PUL_OWNER_USER_IDS` maintenance is required. Existing mappings are bootstrap-only. Keep `ADMIN_SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, database variables and `CRON_SECRET`; `ADMIN_PASSWORD` remains an owner recovery/bootstrap login. Optional `STAFF_BOT_USERNAME` avoids a getMe lookup; otherwise the correct username is read from Telegram. Invitations use the existing webhook, so no Telegram Login Widget/domain registration or second bot token is required. Role and user history lives in append-only `staff_events`.
 
 Telegram uses `/start`, `/pul`, `/tamirlash` without reply menus. Contextual inline buttons link to sections. `bun run telegram:commands` refreshes Telegram's registered command list; webhook setup does this too.
+
+### Evidence archives on UploadThing free tier
+
+`UPLOADTHING_TOKEN` stores encrypted evidence objects; no paid private-file ACL is requested. The application decrypts only through its authenticated source endpoint. `ADMIN_SESSION_SECRET` is the default persistent encryption key source (HKDF-separated from session signatures). Optional `AUDIO_ARCHIVE_KEY` can supply a dedicated stable secret. Keep old key material in `AUDIO_ARCHIVE_PREVIOUS_KEYS` before any rotation so existing archives remain readable. Do not rotate/delete archive keys without retaining them.

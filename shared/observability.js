@@ -6,7 +6,7 @@ export function currentTraceId(){return traceContext.getStore()?.traceId;}
 
 const bots=new Set(['staff','customer','system']);
 const operations=new Set(['request','webhook','staff_request','customer_request','ai_plan','ai_recommend','product_retrieval','knowledge_retrieval','semantic_query','semantic_index','embedding_query','embedding_index','admin_delivery','customer_delivery','staff_delivery','voice_transcription','staff_command','customer_action','index_backfill','semantic.index','semantic.query','retrieval.products','retrieval.knowledge','customer.plan','customer.recommend','customer.send','staff.webhook','customer.webhook']);
-const errors=new Set(['operation_failed','timeout','rate_limited','provider_unavailable','invalid_input','busy','unauthorized','delivery_failed','delivery_uncertain','index_failed','embedding_failed','stale_index','telemetry_unavailable']);
+const errors=new Set(['archive_not_configured','archive_private_access_denied','archive_auth_failed','archive_quota_exceeded','archive_upload_failed','operation_failed','timeout','rate_limited','provider_unavailable','invalid_input','busy','unauthorized','delivery_failed','delivery_uncertain','index_failed','embedding_failed','stale_index','telemetry_unavailable']);
 const statuses=new Set(['ok','error','degraded']);
 const initialized=new WeakMap();
 const retentionMs=7*24*60*60*1000;
@@ -16,6 +16,7 @@ const safeTrace=value=>typeof value==='string'&&uuid.test(value)?value:randomUUI
 const safeBot=value=>bots.has(value)?value:'system';
 const safeOperation=value=>operations.has(value)?value:'request';
 function code(error){
+ if(typeof error?.code==='string'&&error.code.startsWith('archive_')&&errors.has(error.code))return error.code;
  if(error?.name==='CustomerEmbeddingError')return error.code==='provider_unavailable'?'provider_unavailable':'embedding_failed';
  if(error?.name==='AbortError'||error?.name==='TimeoutError')return 'timeout';
  if(error?.statusCode===429||error?.status===429)return 'rate_limited';

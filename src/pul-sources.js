@@ -1,3 +1,4 @@
+import {sealArchive} from './archive-crypto.js';
 import {createHash,randomUUID} from 'node:crypto';
 import {UTApi,UTFile} from 'uploadthing/server';
 export async function setupSources(db){
@@ -12,16 +13,30 @@ export async function setupSources(db){
  await db.execute(`CREATE TABLE IF NOT EXISTS repair_event_sources (event_id TEXT NOT NULL REFERENCES repair_events(id),source_id TEXT NOT NULL REFERENCES pul_sources(id),position INTEGER NOT NULL,PRIMARY KEY(event_id,source_id))`);
  for(const table of ['pul_sources','pul_history_sources','repair_event_sources'])for(const action of ['UPDATE','DELETE'])await db.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_no_${action.toLowerCase()} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT,'Sources are immutable'); END`);
 }
+export function archiveFailureCode(error){
+ const message=typeof error?.message==='string'?error.message:'';
+ if(/acl|access.control|private.*(?:allow|permission|access)|overrid/i.test(message))return 'archive_private_access_denied';
+ if(['UNAUTHORIZED','FORBIDDEN','INVALID_TOKEN','MISSING_ENV'].includes(error?.code))return 'archive_auth_failed';
+ if(/quota|storage limit|insufficient.*(?:storage|credit)/i.test(message))return 'archive_quota_exceeded';
+ return 'archive_upload_failed';
+}
+function archiveError(code,message='SOURCE_UPLOAD_FAILED'){return Object.assign(new Error(message),{code});}
 export function audioArchive(env,{api}={}){
  return async(bytes,requestId)=>{
   const hash=createHash('sha256').update(bytes).digest('hex');
   if(env.NODE_ENV!=='production')return {hash,bytes};
-  if(!env.UPLOADTHING_TOKEN)throw new Error('SOURCE_STORAGE_NOT_CONFIGURED');
-  const client=api||new UTApi({token:env.UPLOADTHING_TOKEN,logLevel:'error'});
-  const file=new UTFile([bytes],`${createHash('sha256').update(requestId).digest('hex')}.ogg`,{type:'audio/ogg',customId:`evidence-${randomUUID()}`});
-  const result=await client.uploadFiles(file,{acl:'private',contentDisposition:'inline'});
-  if(result.error||!result.data?.key)throw new Error('SOURCE_UPLOAD_FAILED');
-  return {hash,key:result.data.key};
+  if(!env.UPLOADTHING_TOKEN)throw archiveError('archive_not_configured','SOURCE_STORAGE_NOT_CONFIGURED');
+  const sealed=sealArchive(bytes,env);
+  let result;
+  try{
+   const client=api||new UTApi({token:env.UPLOADTHING_TOKEN,logLevel:'error'});
+   const file=new UTFile([sealed.bytes],`${createHash('sha256').update(requestId).digest('hex')}.bin`,{type:'application/octet-stream',customId:`evidence-${randomUUID()}`});
+   result=await client.uploadFiles(file,{contentDisposition:'attachment'});
+  }catch(error){throw archiveError(archiveFailureCode(error));}
+  if(result.error)throw archiveError(archiveFailureCode(result.error));
+  if(!result.data?.key)throw archiveError('archive_upload_failed');
+
+  return {hash,key:`enc1.${sealed.keyId}.${result.data.key}`};
  };
 }
 export async function sourceFor(db,ctx,input,transcription,audio){
