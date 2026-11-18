@@ -69,7 +69,7 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
    if(clearButtons)await clearButtons({conversationId,updateId:update.update_id,chatId:msg.chat.id,sourceMessageId:callback?.message?.message_id,onlySource:Boolean(callback)});
    completed=true;return res.json({method:payload.photo?'sendPhoto':'sendMessage',chat_id:msg.chat.id,...(payload.photo?{photo:payload.photo,caption:payload.text.slice(0,1000),...(payload.reply_markup?{reply_markup:payload.reply_markup}:{})}:payload)});
   }catch(error){
-   console.error('Telegram command failed',{name:error.name,code:error.code||error.statusCode||'command_failed'});
+   console.error('Telegram command failed',{name:error.name,code:error.code||error.statusCode||(/^[A-Z][A-Z_]{2,80}$/.test(error.message||'')?error.message:'command_failed')});
    return res.status(503).json({error:'Command processing unavailable; retry later'});
   }finally{if(typingTimer)clearInterval(typingTimer);if(!completed&&restoreButtons)await restoreButtons().catch(()=>{});}
  };

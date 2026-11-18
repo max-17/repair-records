@@ -15,7 +15,7 @@ export function telegramSender(token,{resolvePhoto}={}){
 export function telegramDelivery({db,send,now=()=>Date.now()}){
  return async({updateId,conversationId,chatId,input,process})=>{
   const hash=createHash('sha256').update(JSON.stringify({conversationId,chatId,input})).digest('hex');
-  let claimed=false;const leaseToken=randomUUID();
+  let claimed=false,processingExhausted=false;const leaseToken=randomUUID();
   const lease=()=>({kind:'staff',scope:conversationId,requestId:updateId,token:leaseToken,now:now(),durationMs:60000});
   const tx=await db.transaction('write');
   try{
@@ -25,6 +25,7 @@ export function telegramDelivery({db,send,now=()=>Date.now()}){
    if(existing.status==='sent'){await tx.commit();return {duplicate:true};}
    const prior=await tx.execute({sql:"SELECT update_id FROM telegram_deliveries WHERE conversation_id=? AND status!='sent' AND (created_at<? OR (created_at=? AND update_id<?)) LIMIT 1",args:[conversationId,existing.created_at,existing.created_at,updateId]});
    if(prior.rows.length)throw new Error('EARLIER_MESSAGE_PENDING');
+   processingExhausted=!existing.reply_text&&Number(existing.attempts)>=3;
    const lock=await claimConversationLease(tx,lease());
    if(!lock)throw new Error('CONVERSATION_BUSY');
    await tx.execute({sql:"UPDATE telegram_deliveries SET status='processing',attempts=attempts+1,lease_until=? WHERE update_id=?",args:[now()+60000,updateId]});
@@ -32,7 +33,8 @@ export function telegramDelivery({db,send,now=()=>Date.now()}){
   }finally{if(!tx.closed)await tx.rollback();}
   try{
    const cached=(await db.execute({sql:'SELECT reply_text FROM telegram_deliveries WHERE update_id=?',args:[updateId]})).rows[0];
-   const payload=cached.reply_text?JSON.parse(cached.reply_text):{chat_id:chatId,...await process()};
+   // Only cap processing failures. A saved reply must keep its original delivery semantics.
+   const payload=cached.reply_text?JSON.parse(cached.reply_text):processingExhausted?{chat_id:chatId,text:'Oldingi xabarni qayta ishlash yakunlanmadi. Natijani tekshira olmadim. Yangi yozuv yuborishdan oldin yozuvlarni tekshiring. Botdan foydalanishni davom ettirishingiz mumkin.'}:{chat_id:chatId,...await process()};
    if(!cached.reply_text)await withOwnedLease(db,lease(),tx=>tx.execute({sql:'UPDATE telegram_deliveries SET reply_text=? WHERE update_id=?',args:[JSON.stringify(payload),updateId]}));
    const messageId=await deliverWithLease({db,lease:lease(),payload,send,acknowledge:async(messageId,guard)=>{
     const result=await db.execute({sql:`UPDATE telegram_deliveries SET status='sent',telegram_message_id=?,sent_at=?,lease_until=0,last_error_code=NULL WHERE update_id=? AND ${guard.sql}`,args:[messageId,now(),updateId,...guard.args]});

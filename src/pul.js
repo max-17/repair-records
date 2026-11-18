@@ -1,3 +1,5 @@
+import {SpeechInputError} from './speech.js';
+import {AishaInputError} from './aisha.js';
 import {audioArchive,sourceFor} from './pul-sources.js';
 import {randomUUID,createHash} from 'node:crypto';
 import {writeTransaction} from './audit.js';
@@ -102,7 +104,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
      catch(error){if(!(error instanceof PulError))throw error;next.phase='clarify';payload=incompleteReview(next,error.message);}
     }
    }
-  }catch(error){if(error?.name==='Error'&&['SOURCE_STORAGE_NOT_CONFIGURED','SOURCE_UPLOAD_FAILED','SOURCE_AUDIO_MISSING'].includes(error.message))error=new PulError('Ovozli xabar saqlanmadi. Amal bajarilmadi. Keyinroq qayta yuboring.');if(!(error instanceof PulError)&&error?.constructor?.name!=='SpeechInputError')throw error;payload={text:error.message};}
+  }catch(error){if(error?.name==='Error'&&['SOURCE_STORAGE_NOT_CONFIGURED','SOURCE_UPLOAD_FAILED','SOURCE_AUDIO_MISSING'].includes(error.message))error=new PulError('Ovozli xabar saqlanmadi. Amal bajarilmadi. Keyinroq qayta yuboring.');if(!(error instanceof PulError)&&!(error instanceof SpeechInputError)&&!(error instanceof AishaInputError))throw error;payload={text:error.message};}
   return writeTransaction(db,async tx=>{
    const cached=await cachedResult(tx,ctx,hash);if(cached)return cached;
    const live=(await tx.execute({sql:'SELECT token FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]})).rows[0];
