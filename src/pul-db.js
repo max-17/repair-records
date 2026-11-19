@@ -64,13 +64,14 @@ export async function pulRows(db,shopId){return (await db.execute({sql:'SELECT *
 export async function savePulRecord(tx,ctx,{before=null,kind,data,referenceId=null,deleted=false,reason=null,action}){
  const at=new Date(ctx.now).toISOString(),id=before?.id||randomUUID();
  const worker=before?.worker_id||ctx.workerId||ctx.userId;
+ let result;
  if(before){
-  const result=await tx.execute({sql:'UPDATE pul_records SET data_json=?,is_deleted=?,version=version+1,updated_at=? WHERE id=? AND shop_id=? AND version=?',args:[JSON.stringify(data),deleted?1:0,at,id,ctx.shopId,before.version]});
-  if(result.rowsAffected!==1)throw new Error('PUL_STALE');
- }else await tx.execute({sql:'INSERT INTO pul_records(id,shop_id,kind,reference_id,data_json,worker_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',args:[id,ctx.shopId,kind,referenceId,JSON.stringify(data),worker,at,at]});
- const after=decodePul((await tx.execute({sql:'SELECT * FROM pul_records WHERE id=?',args:[id]})).rows[0]);
- const historyId=randomUUID();
- await tx.execute({sql:'INSERT INTO pul_history(id,shop_id,record_id,action,user_id,user_name,occurred_at,before_json,after_json,reason,command_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',args:[historyId,ctx.shopId,id,action||(!before?'create':'edit'),ctx.userId,ctx.userName,at,before?JSON.stringify(before):null,JSON.stringify(after),reason,ctx.requestId]});
- for(const [position,sourceId] of (ctx.sourceIds||[]).entries())await tx.execute({sql:'INSERT INTO pul_history_sources(history_id,source_id,position) SELECT ?,id,? FROM pul_sources WHERE id=? AND shop_id=?',args:[historyId,position,sourceId,ctx.shopId]});
+  result=await tx.execute({sql:'UPDATE pul_records SET data_json=?,is_deleted=?,version=version+1,updated_at=? WHERE id=? AND shop_id=? AND version=? RETURNING *',args:[JSON.stringify(data),deleted?1:0,at,id,ctx.shopId,before.version]});
+  if(result.rows.length!==1)throw new Error('PUL_STALE');
+ }else result=await tx.execute({sql:'INSERT INTO pul_records(id,shop_id,kind,reference_id,data_json,worker_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) RETURNING *',args:[id,ctx.shopId,kind,referenceId,JSON.stringify(data),worker,at,at]});
+ const after=decodePul(result.rows[0]),historyId=randomUUID();
+ const history=[{sql:'INSERT INTO pul_history(id,shop_id,record_id,action,user_id,user_name,occurred_at,before_json,after_json,reason,command_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',args:[historyId,ctx.shopId,id,action||(!before?'create':'edit'),ctx.userId,ctx.userName,at,before?JSON.stringify(before):null,JSON.stringify(after),reason,ctx.requestId]}];
+ for(const [position,sourceId] of (ctx.sourceIds||[]).entries())history.push({sql:'INSERT INTO pul_history_sources(history_id,source_id,position) SELECT ?,id,? FROM pul_sources WHERE id=? AND shop_id=?',args:[historyId,position,sourceId,ctx.shopId]});
+ await tx.batch(history);
  return after;
 }

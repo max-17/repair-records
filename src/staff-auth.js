@@ -5,15 +5,18 @@ export const staffPermissions=['pul.read','pul.write','pul.all','repairs','admin
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export async function setupStaff(db,env=process.env){let promise=ready.get(db);if(!promise){promise=createTables(db,env);ready.set(db,promise);}try{await promise;}catch(error){ready.delete(db);throw error;}}
 async function createTables(db,env){
- await db.execute('CREATE TABLE IF NOT EXISTS staff_roles(id TEXT PRIMARY KEY,name TEXT NOT NULL,permissions_json TEXT NOT NULL,is_deleted INTEGER NOT NULL DEFAULT 0)');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_users(telegram_id TEXT PRIMARY KEY,name TEXT NOT NULL,role_id TEXT NOT NULL REFERENCES staff_roles(id),repair_master_id TEXT NOT NULL,is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL)');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_invites(token_hash TEXT PRIMARY KEY,role_id TEXT NOT NULL REFERENCES staff_roles(id),created_by TEXT NOT NULL,expires_at INTEGER NOT NULL,used_by TEXT,is_revoked INTEGER NOT NULL DEFAULT 0)');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_login_requests(id TEXT PRIMARY KEY,proof_hash TEXT NOT NULL UNIQUE,invite_hash TEXT,expires_at INTEGER NOT NULL,approved_by TEXT,status TEXT NOT NULL DEFAULT \'pending\')');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_events(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_id TEXT NOT NULL,before_json TEXT,after_json TEXT NOT NULL,created_at TEXT NOT NULL)');
- await db.execute("CREATE TRIGGER IF NOT EXISTS staff_events_immutable_update BEFORE UPDATE ON staff_events BEGIN SELECT RAISE(ABORT,'Immutable history'); END");
- await db.execute("CREATE TRIGGER IF NOT EXISTS staff_events_immutable_delete BEFORE DELETE ON staff_events BEGIN SELECT RAISE(ABORT,'Immutable history'); END");
- await db.execute('CREATE TABLE IF NOT EXISTS staff_config(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_login_limits(id TEXT PRIMARY KEY,count INTEGER NOT NULL,reset_at INTEGER NOT NULL)');
+ await db.batch([
+  'CREATE TABLE IF NOT EXISTS staff_roles(id TEXT PRIMARY KEY,name TEXT NOT NULL,permissions_json TEXT NOT NULL,is_deleted INTEGER NOT NULL DEFAULT 0)',
+  'CREATE TABLE IF NOT EXISTS staff_users(telegram_id TEXT PRIMARY KEY,name TEXT NOT NULL,role_id TEXT NOT NULL REFERENCES staff_roles(id),repair_master_id TEXT NOT NULL,is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS staff_invites(token_hash TEXT PRIMARY KEY,role_id TEXT NOT NULL REFERENCES staff_roles(id),created_by TEXT NOT NULL,expires_at INTEGER NOT NULL,used_by TEXT,is_revoked INTEGER NOT NULL DEFAULT 0)',
+  'CREATE TABLE IF NOT EXISTS staff_login_requests(id TEXT PRIMARY KEY,proof_hash TEXT NOT NULL UNIQUE,invite_hash TEXT,expires_at INTEGER NOT NULL,approved_by TEXT,status TEXT NOT NULL DEFAULT \'pending\')',
+  'CREATE TABLE IF NOT EXISTS staff_events(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_id TEXT NOT NULL,before_json TEXT,after_json TEXT NOT NULL,created_at TEXT NOT NULL)',
+  "CREATE TRIGGER IF NOT EXISTS staff_events_immutable_update BEFORE UPDATE ON staff_events BEGIN SELECT RAISE(ABORT,'Immutable history'); END",
+  "CREATE TRIGGER IF NOT EXISTS staff_events_immutable_delete BEFORE DELETE ON staff_events BEGIN SELECT RAISE(ABORT,'Immutable history'); END",
+  'CREATE TABLE IF NOT EXISTS staff_config(key TEXT PRIMARY KEY,value TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS staff_login_limits(id TEXT PRIMARY KEY,count INTEGER NOT NULL,reset_at INTEGER NOT NULL)'],'write');
+ // Existing installations need no bootstrap write transaction on a cold invocation.
+ if((await db.execute("SELECT value FROM staff_config WHERE key='bootstrap'")).rows[0])return;
  await writeTransaction(db,async tx=>{
   const boot=(await tx.execute("SELECT value FROM staff_config WHERE key='bootstrap'")).rows[0];if(boot)return;
   for(const [id,name,permissions] of [['owner','Egasi',staffPermissions],['leader','Rahbar',['pul.read','pul.write','pul.all','repairs']],['worker','Xodim',['pul.read','pul.write','repairs']]])await tx.execute({sql:'INSERT INTO staff_roles(id,name,permissions_json) VALUES(?,?,?) ON CONFLICT DO NOTHING',args:[id,name,JSON.stringify(permissions)]});

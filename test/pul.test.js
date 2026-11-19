@@ -144,3 +144,18 @@ test('attached image accompanies confirmation and saved reply without a view-ima
  assert.equal(withImage.photo,'attached-image');assert.ok(withImage.text.startsWith('Mahsulot: Redmi Note 9'));assert.match(withImage.text,/Mijoz: Bekzod/);assert.ok(withImage.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')));assert.ok(!withImage.text.includes('Rasm: biriktirilgan'));
  const saved=await confirm(withImage);assert.equal(saved.photo,'attached-image');assert.ok(!saved.reply_markup);assert.match(saved.text,/Saqlandi/);assert.ok(saved.text.startsWith('Redmi Note 9 × 1'));assert.ok(!saved.text.includes('ID:'));assert.equal((await pulRows(db,'main')).find(r=>r.kind==='sale').data.photo,'attached-image');
 }));
+test('common report/debt requests bypass AI while preserving worker scope',()=>fixture(async({db,send,confirm,set})=>{
+ set(sale);await confirm(await send());let calls=0;
+ const fast=pulService({db,env,parse:async()=>{calls++;return {...blank,action:'clarify',question:'Aniqlashtiring'};},now:()=>Date.parse('2026-11-17T09:00:00Z')});
+ const request=(text,user='7')=>fast({text,receivedBy:user,receivedByName:'Worker',requestId:crypto.randomUUID(),conversationId:'shortcut:'+user});
+ const report=await request('Bugungi hisobot');assert.match(report.text,/2026-11-17 — 2026-11-17/);assert.match(report.text,/500/);assert.equal(calls,0);
+ const debts=await request('qarz daftar');assert.match(debts.text,/Bekzod/);assert.equal(calls,0);
+ const other=await request('qarz daftar','8');assert.ok(!other.text.includes('Bekzod'));assert.equal(calls,0);
+ await request('Bugungi hisobot faqat naqd');assert.equal(calls,1);
+}));
+test('batched audit failure rolls back financial rows and confirmation cache together',()=>fixture(async({db,send,confirm,set})=>{
+ set(sale);const review=await send();await db.execute("CREATE TRIGGER reject_pul_history BEFORE INSERT ON pul_history BEGIN SELECT RAISE(ABORT,'test audit failure'); END");
+ await assert.rejects(confirm(review),/audit failure/);assert.equal((await pulRows(db,'main')).length,0);assert.equal((await db.execute('SELECT count(*) AS n FROM pul_history')).rows[0].n,0);
+ assert.equal((await db.execute("SELECT json_extract(state_json,'$.phase') AS phase FROM pul_drafts")).rows[0].phase,'pending');
+ await db.execute('DROP TRIGGER reject_pul_history');await confirm(review);assert.equal((await pulRows(db,'main')).filter(r=>r.kind==='sale').length,1);
+}));

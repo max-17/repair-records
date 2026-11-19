@@ -10,10 +10,14 @@ export function sectionButtons(section='both'){
 
 const commandSections={pul:'money',tamirlash:'repair',repair:'repair'};
 const normalizeSection=section=>['money','sales','debts','reports'].includes(section)?'money':'repair';
+const menuReady=new WeakMap();
 export async function setupBotMenu(db){
+ let pending=menuReady.get(db);if(!pending){pending=createMenuTables(db);menuReady.set(db,pending);}
+ try{await pending;}catch(error){menuReady.delete(db);throw error;}
+}
+async function createMenuTables(db){
  await setupPul(db);
- await db.execute('CREATE TABLE IF NOT EXISTS staff_bot_sections (master_id TEXT NOT NULL, conversation_id TEXT NOT NULL, section TEXT NOT NULL, PRIMARY KEY(master_id,conversation_id))');
- await db.execute('CREATE TABLE IF NOT EXISTS staff_bot_menu_requests (master_id TEXT NOT NULL, request_id TEXT NOT NULL, section TEXT NOT NULL, PRIMARY KEY(master_id,request_id))');
+ await db.batch(['CREATE TABLE IF NOT EXISTS staff_bot_sections (master_id TEXT NOT NULL, conversation_id TEXT NOT NULL, section TEXT NOT NULL, PRIMARY KEY(master_id,conversation_id))','CREATE TABLE IF NOT EXISTS staff_bot_menu_requests (master_id TEXT NOT NULL, request_id TEXT NOT NULL, section TEXT NOT NULL, PRIMARY KEY(master_id,request_id))'],'write');
 }
 export function botMenuService({db}){
  let ready;

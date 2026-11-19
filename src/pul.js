@@ -1,10 +1,11 @@
+import {pulReadShortcut} from './pul-read-shortcuts.js';
 import {numericProductPlan} from './pul-product-numbers.js';
 import {SpeechInputError} from './speech.js';
 import {AishaInputError} from './aisha.js';
 import {audioArchive,sourceFor} from './pul-sources.js';
 import {randomUUID,createHash} from 'node:crypto';
 import {writeTransaction} from './audit.js';
-import {setupPul,pulRows,savePulRecord} from './pul-db.js';
+import {setupPul,pulRows,decodePul,savePulRecord} from './pul-db.js';
 import {PulError,minor,money,checkDate,visibleTo,remaining,providerRemaining,paidTo,recordName,recordSummary,paymentData,saleData,debtData,vendorData,reportText} from './pul-domain.js';
 import {pulPlanSchema} from './pul-parser.js';
 import {todayInTashkent} from './time.js';
@@ -15,7 +16,8 @@ export function pulOwnerIds(env){
 }
 const methods={cash:'Naqd',card:'Karta',transfer:'O‘tkazma'};
 const actions={purchase:'Xarid / pul chiqimi',sale:'Sotuv / xizmat',debt:'Qarz yozish',pay:'Qarz to‘lovi',vendor_payment:'Provayder to‘lovi',vendor:'Provayder',edit:'Tahrirlash',delete:'O‘chirish',restore:'Tiklash',remind:'Eslatma'};
-export function pulService({db,parse,transcribeVoice,env={},allowAttribution=false,authorize,archiveAudio=audioArchive(env),now=()=>Date.now()}){
+export function pulService({db,parse,transcribeVoice,env={},allowAttribution=false,authorize,archiveAudio=audioArchive(env),onTiming=(_event)=>{},now=()=>Date.now()}){
+ const timed=(stage,fn)=>{const start=performance.now();try{return fn();}finally{try{onTiming?.({stage,ms:performance.now()-start});}catch{}}};
  let ready;
  const init=async()=>{try{await (ready??=setupPul(db));}catch(error){ready=null;throw error;}};
  return async input=>{
@@ -32,10 +34,12 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
   const hash=createHash('sha256').update(JSON.stringify({actor:ctx.userId,conversation:ctx.conversationId,text:input.text??null,voice:input.voice?.file_id??null,photo:input.photo??null,commandData:input.commandData??null,worker:ctx.workerId||null})).digest('hex');
   const prior=(await db.execute({sql:'SELECT * FROM pul_requests WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0];
   if(prior){if(prior.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');return JSON.parse(prior.result_json);}
-  if(input.chatId!=null)await db.execute({sql:'INSERT INTO pul_workers(shop_id,user_id,name,chat_id) VALUES(?,?,?,?) ON CONFLICT(shop_id,user_id) DO UPDATE SET name=excluded.name,chat_id=excluded.chat_id',args:[ctx.shopId,ctx.userId,ctx.userName,String(input.chatId)]});
-  const stored=(await db.execute({sql:'SELECT * FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]})).rows[0];
-  const draft=stored?JSON.parse(stored.state_json):null;
-  let text=input.text||'',records=accessibleRows(await pulRows(db,ctx.shopId),ctx);
+  const reads=[];
+  if(input.chatId!=null)reads.push({sql:'INSERT INTO pul_workers(shop_id,user_id,name,chat_id) VALUES(?,?,?,?) ON CONFLICT(shop_id,user_id) DO UPDATE SET name=excluded.name,chat_id=excluded.chat_id WHERE name!=excluded.name OR chat_id!=excluded.chat_id',args:[ctx.shopId,ctx.userId,ctx.userName,String(input.chatId)]});
+  reads.push({sql:'SELECT * FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]},{sql:'SELECT * FROM pul_records WHERE shop_id=? ORDER BY created_at DESC,id',args:[ctx.shopId]});
+  const state=await db.batch(reads,input.chatId!=null?'write':'read');
+  const stored=state.at(-2).rows[0],draft=stored?JSON.parse(stored.state_json):null;
+  let text=input.text||'',records=accessibleRows(state.at(-1).rows.map(decodePul),ctx);
   const command=/^\/pul_(confirm|edit|cancel|photo|showphoto) ([0-9a-f-]{36})$/.exec(text);
   const commandTime=input.voice&&Number.isFinite(input.receivedAt)&&input.receivedAt>0&&input.receivedAt<=ctx.now+300000?input.receivedAt:ctx.now;
   const ctxDate=todayInTashkent(new Date(commandTime));
@@ -92,7 +96,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
     const sourceId=await sourceFor(db,ctx,input,text,audio);
     const previous=draft&&['pending','editing','clarify'].includes(draft.phase)?draft.plan:null;
     const sourceIds=[...new Set([...(previous?draft.sourceIds||[]:[]),sourceId])];
-    const quick=text==='/pul_report'?{action:'report'}:text==='/pul_debts'?{action:'list',record_kind:'debt'}:null;
+    const quick=pulReadShortcut(text,ctxDate);
     const plan=numericProductPlan(pulPlanSchema.parse(quick?{...Object.fromEntries(Object.keys(pulPlanSchema.shape).map(k=>[k,k==='include_deleted'?false:null])),...quick}:await parse({text,previous,today:ctxDate,inactivitySeconds:draft?.at?Math.max(0,(ctx.now-draft.at)/1000):null,records:relevantRecords(records,text,previous).map(r=>({id:r.id,kind:r.kind,worker:r.worker_id,is_deleted:r.is_deleted,...r.data}))})));
     if(plan.action==='clarify'){
      next={token:randomUUID(),sourceIds,plan,phase:'clarify',at:commandTime};payload=incompleteReview(next,plan.question||'Mijoz, summa va amalni aniqroq ayting.');
@@ -101,7 +105,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
     }else{
      if(!ctx.canWrite)throw new PulError('Yozuv qo‘shish yoki o‘zgartirish huquqi yo‘q.');
      next={token:randomUUID(),sourceIds,plan,workerId:ctx.workerId||null,photo:previous?draft.photo:input.initialPhoto||null,phase:'pending',at:previous?draft.at:commandTime};
-     try{next.prepared=prepare(plan,records,ctx,next.photo);payload=review(next);}
+     try{next.prepared=timed('business_validation',()=>prepare(plan,records,ctx,next.photo));payload=timed('draft_formatting',()=>review(next));}
      catch(error){if(!(error instanceof PulError))throw error;next.phase='clarify';payload=incompleteReview(next,error.message);}
     }
    }
@@ -121,9 +125,12 @@ function relevantRecords(records,text,previous){
 function accessibleRows(rows,ctx){const owned=new Set(rows.filter(r=>visibleTo(r,ctx)).map(r=>r.id));return rows.filter(r=>visibleTo(r,ctx)||(r.kind==='payment'&&owned.has(r.reference_id)));}
 async function cachedResult(tx,ctx,hash){const row=(await tx.execute({sql:'SELECT * FROM pul_requests WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0];if(!row)return null;if(row.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');return JSON.parse(row.result_json);}
 async function persist(tx,ctx,hash,draft,payload){
- if(draft)await tx.execute({sql:'INSERT INTO pul_drafts(shop_id,conversation_id,token,state_json) VALUES(?,?,?,?) ON CONFLICT(shop_id,conversation_id) DO UPDATE SET token=excluded.token,state_json=excluded.state_json',args:[ctx.shopId,ctx.conversationId,draft.token||randomUUID(),JSON.stringify(draft)]});
- await tx.execute({sql:'INSERT INTO pul_requests(shop_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[ctx.shopId,ctx.requestId,hash,JSON.stringify(payload)]});
+ const statements=[];
+ if(draft)statements.push({sql:'INSERT INTO pul_drafts(shop_id,conversation_id,token,state_json) VALUES(?,?,?,?) ON CONFLICT(shop_id,conversation_id) DO UPDATE SET token=excluded.token,state_json=excluded.state_json',args:[ctx.shopId,ctx.conversationId,draft.token||randomUUID(),JSON.stringify(draft)]});
+ statements.push({sql:'INSERT INTO pul_requests(shop_id,request_id,input_hash,result_json) VALUES(?,?,?,?)',args:[ctx.shopId,ctx.requestId,hash,JSON.stringify(payload)]});
+ await tx.batch(statements);
 }
+
 function findTarget(plan,records,{deleted=false}={}){
  let matches=records.filter(r=>r.is_deleted===deleted);
  if(plan.record_id)matches=matches.filter(r=>r.id===plan.record_id);

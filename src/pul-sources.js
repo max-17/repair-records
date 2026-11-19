@@ -1,17 +1,22 @@
 import {sealArchive} from './archive-crypto.js';
 import {createHash,randomUUID} from 'node:crypto';
 import {UTApi,UTFile} from 'uploadthing/server';
+const sourceReady=new WeakMap();
 export async function setupSources(db){
- await db.execute(`CREATE TABLE IF NOT EXISTS pul_sources (
+ let pending=sourceReady.get(db);
+ if(!pending){pending=createSourceTables(db);sourceReady.set(db,pending);}
+ try{await pending;}catch(error){sourceReady.delete(db);throw error;}
+}
+async function createSourceTables(db){
+ const statements=[`CREATE TABLE IF NOT EXISTS pul_sources (
  id TEXT PRIMARY KEY,shop_id TEXT NOT NULL,request_id TEXT NOT NULL,actor_id TEXT NOT NULL,
  chat_id TEXT,message_id TEXT,sent_at TEXT NOT NULL,kind TEXT NOT NULL,
  original_text TEXT,transcription TEXT,telegram_file_id TEXT,audio_key TEXT,audio_hash TEXT,audio_bytes BLOB,
- UNIQUE(shop_id,request_id))`);
- await db.execute(`CREATE TABLE IF NOT EXISTS pul_history_sources (
+ UNIQUE(shop_id,request_id))`,`CREATE TABLE IF NOT EXISTS pul_history_sources (
  history_id TEXT NOT NULL REFERENCES pul_history(id),source_id TEXT NOT NULL REFERENCES pul_sources(id),
- position INTEGER NOT NULL,PRIMARY KEY(history_id,source_id))`);
- await db.execute(`CREATE TABLE IF NOT EXISTS repair_event_sources (event_id TEXT NOT NULL REFERENCES repair_events(id),source_id TEXT NOT NULL REFERENCES pul_sources(id),position INTEGER NOT NULL,PRIMARY KEY(event_id,source_id))`);
- for(const table of ['pul_sources','pul_history_sources','repair_event_sources'])for(const action of ['UPDATE','DELETE'])await db.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_no_${action.toLowerCase()} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT,'Sources are immutable'); END`);
+ position INTEGER NOT NULL,PRIMARY KEY(history_id,source_id))`,`CREATE TABLE IF NOT EXISTS repair_event_sources (event_id TEXT NOT NULL REFERENCES repair_events(id),source_id TEXT NOT NULL REFERENCES pul_sources(id),position INTEGER NOT NULL,PRIMARY KEY(event_id,source_id))`];
+ for(const table of ['pul_sources','pul_history_sources','repair_event_sources'])for(const action of ['UPDATE','DELETE'])statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_no_${action.toLowerCase()} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT,'Sources are immutable'); END`);
+ await db.batch(statements,'write');
 }
 export function archiveFailureCode(error){
  const message=typeof error?.message==='string'?error.message:'';
@@ -41,11 +46,13 @@ export function audioArchive(env,{api}={}){
  };
 }
 export async function sourceFor(db,ctx,input,transcription,audio){
- const existing=(await db.execute({sql:'SELECT id FROM pul_sources WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0];
- if(existing)return existing.id;
- if(input.voice&&!audio)throw new Error('SOURCE_AUDIO_MISSING');
+ if(input.voice&&!audio){
+  const existing=(await db.execute({sql:'SELECT id FROM pul_sources WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0];
+  if(existing)return existing.id;throw new Error('SOURCE_AUDIO_MISSING');
+ }
  const id=randomUUID();
- await db.execute({sql:`INSERT INTO pul_sources(id,shop_id,request_id,actor_id,chat_id,message_id,sent_at,kind,original_text,transcription,telegram_file_id,audio_key,audio_hash,audio_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,request_id) DO NOTHING`,args:[id,ctx.shopId,ctx.requestId,ctx.userId,input.chatId==null?null:String(input.chatId),input.messageId==null?null:String(input.messageId),new Date(input.receivedAt||ctx.now).toISOString(),input.voice?'audio':input.commandData?'manual':'text',input.voice?null:input.commandData?JSON.stringify(input.commandData):input.text||null,input.voice?transcription:null,input.voice?.file_id||null,audio?.key||null,audio?.hash||null,audio?.bytes||null]});
+ const inserted=await db.execute({sql:`INSERT INTO pul_sources(id,shop_id,request_id,actor_id,chat_id,message_id,sent_at,kind,original_text,transcription,telegram_file_id,audio_key,audio_hash,audio_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,request_id) DO NOTHING RETURNING id`,args:[id,ctx.shopId,ctx.requestId,ctx.userId,input.chatId==null?null:String(input.chatId),input.messageId==null?null:String(input.messageId),new Date(input.receivedAt||ctx.now).toISOString(),input.voice?'audio':input.commandData?'manual':'text',input.voice?null:input.commandData?JSON.stringify(input.commandData):input.text||null,input.voice?transcription:null,input.voice?.file_id||null,audio?.key||null,audio?.hash||null,audio?.bytes||null]});
+ if(inserted.rows[0])return inserted.rows[0].id;
  return (await db.execute({sql:'SELECT id FROM pul_sources WHERE shop_id=? AND request_id=?',args:[ctx.shopId,ctx.requestId]})).rows[0].id;
 }
 export async function sourceDetails(db,shopId,recordId){

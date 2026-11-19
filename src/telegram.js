@@ -32,9 +32,8 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
   let typingTimer,restoreButtons,completed=false;
   try {
    if(!callback&&processingNotice)await processingNotice.start({updateId:update.update_id,chatId:msg.chat.id}).catch(()=>{});
-   if(typing){await typing(msg.chat.id).catch(()=>{});typingTimer=setInterval(()=>{void typing(msg.chat.id).catch(()=>{});},4000);typingTimer.unref?.();}
-   if(callback && answerCallback)await answerCallback(callback.id).catch(()=>{});
-   if(callback&&buttonProgress)restoreButtons=await buttonProgress(callback).catch(()=>null);
+   if(typing){void typing(msg.chat.id).catch(()=>{});typingTimer=setInterval(()=>{void typing(msg.chat.id).catch(()=>{});},4000);typingTimer.unref?.();}
+   if(callback){const results=await Promise.all([answerCallback?answerCallback(callback.id).catch(()=>{}):null,buttonProgress?buttonProgress(callback).catch(()=>null):null]);restoreButtons=results[1];}
    const process=async()=>{
     if(runMenu){
      const menu=await runMenu({masterId,conversationId,requestId:`telegram:${update.update_id}`,text:msg.text});
