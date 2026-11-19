@@ -1,3 +1,4 @@
+import {telegramProcessingNotice} from './telegram-processing.js';
 import {audioArchive} from './pul-sources.js';
 import {randomUUID} from 'node:crypto';
 import {observe,withTraceContext,recordOperationalEvent} from '../shared/observability.js';
@@ -31,7 +32,8 @@ export function createRuntimeApp(env=process.env) {
   const runPul=db&&env.GOOGLE_GENERATIVE_AI_API_KEY?pulService({db,env,authorize:id=>staffAccess(db,env,id),parse:(...args)=>observe({db,bot:'staff',operation:'pul_plan'},()=>pulParser(env)(...args)),transcribeVoice:(...args)=>observe({db,bot:'staff',operation:'voice_transcription'},()=>transcriber(...args))}):null;
   const typing=async chatId=>{await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendChatAction`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chatId,action:'typing'}),signal:AbortSignal.timeout(2000)});};
   const buttonProgress=env.TELEGRAM_BOT_TOKEN?telegramButtonProgress({token:env.TELEGRAM_BOT_TOKEN}):null;
-  const staffHandler=telegramWebhook({env,resolveStaff:db?id=>staffAccess(db,env,id):null,runLogin:db?staffTelegramLogin({db,env}):null,runMenu,runPul,typing,buttonProgress,runCommand:deliver?runCommand:null,deliver,answerCallback,runVoice,clearVoice,clearButtons});
+  const processingNotice=db&&env.TELEGRAM_BOT_TOKEN?telegramProcessingNotice({db,token:env.TELEGRAM_BOT_TOKEN}):null;
+  const staffHandler=telegramWebhook({env,resolveStaff:db?id=>staffAccess(db,env,id):null,runLogin:db?staffTelegramLogin({db,env}):null,runMenu,runPul,typing,processingNotice,buttonProgress,runCommand:deliver?runCommand:null,deliver,answerCallback,runVoice,clearVoice,clearButtons});
   let schemaReady;
   const tracedHandler=async(req,res)=>{
     if(db){try{await (schemaReady??=setup(db));}catch(error){schemaReady=null;throw error;}}

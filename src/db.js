@@ -32,6 +32,7 @@ export async function setup(db) {
     lease_until INTEGER NOT NULL DEFAULT 0, reply_text TEXT, telegram_message_id INTEGER,
     last_error_code TEXT, created_at INTEGER NOT NULL, sent_at INTEGER
   )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS telegram_processing_notices (update_id INTEGER PRIMARY KEY,chat_id TEXT NOT NULL,status TEXT NOT NULL,message_id INTEGER,created_at INTEGER NOT NULL)`);
   await db.execute('CREATE INDEX IF NOT EXISTS telegram_delivery_order ON telegram_deliveries(conversation_id,status,created_at,update_id)');
   await db.execute(`CREATE TABLE IF NOT EXISTS telegram_locks (
     conversation_id TEXT PRIMARY KEY, update_id INTEGER NOT NULL, lease_until INTEGER NOT NULL, lease_token TEXT NOT NULL

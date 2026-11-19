@@ -1,7 +1,7 @@
 import {sectionButtons} from './bot-menu.js';
 import {timingSafeEqual} from 'node:crypto';
 import {telegramPresentation} from './tasks.js';
-export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu,runPul,typing,buttonProgress,resolveStaff,runLogin}) {
+export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,clearVoice,clearButtons,runMenu,runPul,typing,processingNotice,buttonProgress,resolveStaff,runLogin}) {
  return async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   const secret=env.TELEGRAM_WEBHOOK_SECRET;
@@ -31,6 +31,7 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
   const receivedByName=[msg.from.first_name,msg.from.last_name].filter(Boolean).join(' ').slice(0,300)||masterId;
   let typingTimer,restoreButtons,completed=false;
   try {
+   if(!callback&&processingNotice)await processingNotice.start({updateId:update.update_id,chatId:msg.chat.id}).catch(()=>{});
    if(typing){await typing(msg.chat.id).catch(()=>{});typingTimer=setInterval(()=>{void typing(msg.chat.id).catch(()=>{});},4000);typingTimer.unref?.();}
    if(callback && answerCallback)await answerCallback(callback.id).catch(()=>{});
    if(callback&&buttonProgress)restoreButtons=await buttonProgress(callback).catch(()=>null);
@@ -45,7 +46,9 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
      if(menu.section!=='repair'){
       if(callback&&!callback.data.startsWith('pul_'))return {text:'Bu tugma boshqa bo‘limga tegishli. Buyruqni qayta yuboring.'};
       if(!runPul)return {text:'Pul xizmati sozlanmagan.'};
-      return runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,messageId:msg.message_id,text:msg.text,voice:msg.voice,photo:msg.photo?.at(-1)?.file_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
+      const result=await runPul({masterId,conversationId,requestId:`telegram:${update.update_id}`,messageId:msg.message_id,text:msg.text,voice:msg.voice,photo:msg.photo?.at(-1)?.file_id,chatId:msg.chat.id,receivedAt:Number.isFinite(msg.date)?msg.date*1000:null,receivedBy,receivedByName});
+      if(callback?.data.startsWith('pul_confirm:')&&Number.isSafeInteger(callback.message?.message_id)&&(result.text.startsWith('Saqlandi.')||result.text.endsWith('\nSaqlandi.')))return {...result,edit_target:{message_id:callback.message.message_id,caption:Boolean(callback.message.photo?.length)}};
+      return result;
      }
      if(callback?.data.startsWith('pul_'))return {text:'Bu tugma Pul bo‘limiga tegishli.',reply_markup:sectionButtons('pul')};
     }
@@ -63,11 +66,12 @@ export function telegramWebhook({env,runCommand,deliver,answerCallback,runVoice,
    if(deliver){
     await deliver({updateId:update.update_id,conversationId,chatId:msg.chat.id,input:msg.text||(msg.voice?`voice:${msg.voice.file_id}`:msg.photo?.length?`photo:${msg.photo.at(-1).file_id}`:'non-text'),process});
     if(clearButtons)await clearButtons({conversationId,updateId:update.update_id,chatId:msg.chat.id,sourceMessageId:callback?.message?.message_id,onlySource:Boolean(callback)});
-    completed=true;return res.json({ok:true});
+    completed=true;if(!callback&&processingNotice)await processingNotice.finish({updateId:update.update_id,chatId:msg.chat.id}).catch(()=>{});return res.json({ok:true});
    }
    const payload=await process();
    if(clearButtons)await clearButtons({conversationId,updateId:update.update_id,chatId:msg.chat.id,sourceMessageId:callback?.message?.message_id,onlySource:Boolean(callback)});
-   completed=true;return res.json({method:payload.photo?'sendPhoto':'sendMessage',chat_id:msg.chat.id,...(payload.photo?{photo:payload.photo,caption:payload.text.slice(0,1000),...(payload.reply_markup?{reply_markup:payload.reply_markup}:{})}:payload)});
+   if(payload.edit_target){completed=true;if(!callback&&processingNotice)await processingNotice.finish({updateId:update.update_id,chatId:msg.chat.id}).catch(()=>{});return res.json({method:payload.edit_target.caption?'editMessageCaption':'editMessageText',chat_id:msg.chat.id,message_id:payload.edit_target.message_id,...(payload.edit_target.caption?{caption:payload.text.slice(0,1000)}:{text:payload.text.slice(0,4000)}),reply_markup:payload.reply_markup||{inline_keyboard:[]}});}
+   completed=true;if(!callback&&processingNotice)await processingNotice.finish({updateId:update.update_id,chatId:msg.chat.id}).catch(()=>{});return res.json({method:payload.photo?'sendPhoto':'sendMessage',chat_id:msg.chat.id,...(payload.photo?{photo:payload.photo,caption:payload.text.slice(0,1000),...(payload.reply_markup?{reply_markup:payload.reply_markup}:{})}:payload)});
   }catch(error){
    console.error('Telegram command failed',{name:error.name,code:error.code||error.statusCode||(/^[A-Z][A-Z_]{2,80}$/.test(error.message||'')?error.message:'command_failed')});
    return res.status(503).json({error:'Command processing unavailable; retry later'});

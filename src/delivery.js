@@ -2,14 +2,16 @@ import {claimConversationLease,releaseConversationLease,leaseOwnershipGuard,with
 import {createHash,randomUUID} from 'node:crypto';
 export function telegramSender(token,{resolvePhoto}={}){
  return async payload=>{
-  const method=payload.photo?'sendPhoto':'sendMessage';
-  const body=payload.photo?{...payload,caption:payload.text.slice(0,1000)}:{...payload,text:payload.text.slice(0,4000)};if(payload.photo)delete body.text;
+  const edit=payload.edit_target;
+  const method=edit?(edit.caption?'editMessageCaption':'editMessageText'):payload.photo?'sendPhoto':'sendMessage';
+  const body=edit?{chat_id:payload.chat_id,message_id:edit.message_id,...(edit.caption?{caption:payload.text.slice(0,1000)}:{text:payload.text.slice(0,4000)}),reply_markup:payload.reply_markup||{inline_keyboard:[]}}:payload.photo?{...payload,caption:payload.text.slice(0,1000)}:{...payload,text:payload.text.slice(0,4000)};if(payload.photo&&!edit)delete body.text;
   let requestBody=JSON.stringify(body),headers={'Content-Type':'application/json'};
-  if(payload.photo?.startsWith('web:')){const file=await resolvePhoto?.(payload.photo.slice(4));if(!file)throw new Error('PHOTO_UNAVAILABLE');const form=new FormData();form.set('chat_id',String(payload.chat_id));form.set('photo',new Blob([file.bytes],{type:file.contentType}),'sale-photo');form.set('caption',body.caption);if(body.reply_markup)form.set('reply_markup',JSON.stringify(body.reply_markup));requestBody=form;headers={};}
+  if(!edit&&payload.photo?.startsWith('web:')){const file=await resolvePhoto?.(payload.photo.slice(4));if(!file)throw new Error('PHOTO_UNAVAILABLE');const form=new FormData();form.set('chat_id',String(payload.chat_id));form.set('photo',new Blob([file.bytes],{type:file.contentType}),'sale-photo');form.set('caption',body.caption);if(body.reply_markup)form.set('reply_markup',JSON.stringify(body.reply_markup));requestBody=form;headers={};}
   const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:'POST',headers,body:requestBody,signal:AbortSignal.timeout(10000)});
   const result=await response.json();
+  if(edit&&!result.ok&&Number(result.error_code)===400&&/message is not modified/i.test(result.description||''))return edit.message_id;
   if(!response.ok||!result.ok){const error=new Error('TELEGRAM_SEND_FAILED');error.code=String(result.error_code||response.status);error.ambiguous=false;error.retryable=Number(error.code)===429||Number(error.code)>=500;throw error;}
-  return result.result.message_id;
+  return result.result?.message_id||edit?.message_id;
  };
 }
 export function telegramDelivery({db,send,now=()=>Date.now()}){
