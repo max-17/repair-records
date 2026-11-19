@@ -41,6 +41,6 @@ export async function POST(request:Request){
   const result=await service({masterId:'web',conversationId:`web:${scope}:${body.draftId}`,requestId:`web:${body.requestId}`,receivedBy:actor.id,receivedByName:actor.name,attributedWorkerId:body.action==='preview'?body.workerId:undefined,text:body.action==='preview'?'Manual entry':`/pul_${body.action} ${body.token}`,commandData:body.action==='preview'?{plan,photo:body.photo||null}:null,initialPhoto:body.photo||null});
   const button=result.reply_markup?.inline_keyboard?.flat().find((b:{callback_data?:string})=>b.callback_data?.startsWith('pul_confirm:'));
   const token=button?.callback_data?.split(':')[1];
-  return Response.json({text:result.text,token,ready:Boolean(token),saved:result.text.startsWith('Saqlandi.'),cancelled:body.action==='cancel'},{headers});
+  return Response.json({text:result.text,token,ready:Boolean(token),saved:result.text.startsWith('Saqlandi.')||result.text.endsWith('\nSaqlandi.'),cancelled:body.action==='cancel'},{headers});
  }catch(error){const code=error instanceof Error?error.message:'';return Response.json({error:code==='PUL_REQUEST_CONFLICT'?'Bu so‘rov o‘zgargan. Qaytadan kiriting.':code==='INVALID_WORKER'?'Xodimni tanlang.':'Ma’lumotlar noto‘g‘ri yoki saqlash amalga oshmadi. Qayta tekshiring.'},{status:400,headers});}
 }

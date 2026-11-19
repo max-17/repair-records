@@ -16,7 +16,7 @@ async function fixture(fn){const path=await mkdtemp(join(tmpdir(),'pul-test-'));
 test('voice sale presents fields before saving, photo before confirmation, split debt and seller attribution',()=>fixture(async({db,send,confirm,token,set,getTranscriptions})=>{
  set(sale);const review=await send({voice:{file_id:'voice'},text:undefined});assert.match(review.text,/Mijoz: Bekzod/);assert.match(review.text,/Mahsulot: Redmi/);assert.ok(!review.text.includes('recognized raw audio'));assert.equal((await pulRows(db,'main')).length,0);assert.equal(getTranscriptions(),1);
  assert.ok(review.reply_markup.inline_keyboard.flat().some(b=>b.text==='Rasm qo‘shish'&&b.style==='primary'));
- await send({text:`/pul_photo ${token(review)}`});const photoReview=await send({photo:'telegram-file-id',text:undefined});assert.match(photoReview.text,/Rasm: biriktirilgan/);
+ await send({text:`/pul_photo ${token(review)}`});const photoReview=await send({photo:'telegram-file-id',text:undefined});assert.equal(photoReview.photo,'telegram-file-id');
  assert.match((await send({text:`/pul_confirm ${token(review)}`})).text,/eskirgan/);
  await confirm(photoReview);const rows=await pulRows(db,'main'),saved=rows.find(r=>r.kind==='sale');assert.equal(saved.worker_id,'7');assert.equal(saved.data.photo,'telegram-file-id');assert.equal(remaining(saved,rows),30000000);assert.equal(rows.filter(r=>r.kind==='payment').length,1);
  assert.equal((await db.execute('SELECT user_id FROM pul_history')).rows.every(r=>r.user_id==='7'),true);
@@ -72,7 +72,7 @@ test('webhook routes Pul voice, photo and confirmation without invoking repair c
  const handler=telegramWebhook({env:{TELEGRAM_WEBHOOK_SECRET:'fixture',TELEGRAM_MASTERS:'{"7":"worker"}'},runMenu:botMenuService({db}),runPul:service,runCommand:async()=>{repairs++;return {reply:'repair'};},typing:async()=>{typing++;}});
  async function message(extra,callback){let payload;const base={chat:{id:7,type:'private'},from:{id:7,first_name:'Aziz'},message_id:5};const body=callback?{update_id:++updates,callback_query:{id:'callback',from:base.from,message:base,data:callback}}:{update_id:++updates,message:{...base,...extra}};await handler({get:()=> 'fixture',body},{setHeader(){},status(){return this;},json(value){payload=value;return this;}});return payload;}
  await message({text:'/pul'});const review=await message({voice:{file_id:'voice'},date:Math.floor(Date.now()/1000)});assert.match(review.text,/Mijoz/);assert.equal((await pulRows(db,'main')).length,0);
- const photoAction=review.reply_markup.inline_keyboard.flat().find(b=>b.callback_data.startsWith('pul_photo:')).callback_data;await message({},photoAction);const updated=await message({photo:[{file_id:'photo-small'},{file_id:'photo-large'}]});assert.match(updated.text,/Rasm: biriktirilgan/);
+ const photoAction=review.reply_markup.inline_keyboard.flat().find(b=>b.callback_data.startsWith('pul_photo:')).callback_data;await message({},photoAction);const updated=await message({photo:[{file_id:'photo-small'},{file_id:'photo-large'}]});assert.equal(updated.photo,'photo-large');
  const confirm=updated.reply_markup.inline_keyboard.flat().find(b=>b.callback_data.startsWith('pul_confirm:')).callback_data;const result=await message({},confirm);assert.match(result.text,/Saqlandi/);assert.equal((await pulRows(db,'main')).find(r=>r.kind==='sale').data.photo,'photo-large');assert.equal(repairs,0);assert.equal(typing,5);
 }));
 test('sale price edits retain before values in history and require confirmation again',()=>fixture(async({db,send,confirm,set})=>{
@@ -137,4 +137,10 @@ test('product model uses digits in draft and stored record while source wording 
  set({...sale,items:[{name:"iPhone o'n uch pro",type:'product',quantity:1,unit_price:500000}],payments:[{amount:500000,currency:'UZS',method:'cash'}]});
  const reply=await send({text});assert.match(reply.text,/iPhone 13 pro/);assert.ok(!reply.text.includes("o'n uch"));await confirm(reply);
  const row=(await pulRows(db,'main')).find(r=>r.kind==='sale');assert.equal(row.data.items[0].name,'iPhone 13 pro');assert.equal((await db.execute('SELECT original_text FROM pul_sources LIMIT 1')).rows[0].original_text,text);
+}));
+
+test('attached image accompanies confirmation and saved reply without a view-image button',()=>fixture(async({db,send,confirm,token,set})=>{
+ set(sale);const first=await send();await send({text:'/pul_photo '+token(first)});const withImage=await send({photo:'attached-image',text:undefined});
+ assert.equal(withImage.photo,'attached-image');assert.ok(withImage.text.startsWith('Mahsulot: Redmi Note 9'));assert.match(withImage.text,/Mijoz: Bekzod/);assert.ok(withImage.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')));assert.ok(!withImage.text.includes('Rasm: biriktirilgan'));
+ const saved=await confirm(withImage);assert.equal(saved.photo,'attached-image');assert.ok(!saved.reply_markup);assert.match(saved.text,/Saqlandi/);assert.ok(saved.text.startsWith('Redmi Note 9 × 1'));assert.ok(!saved.text.includes('ID:'));assert.equal((await pulRows(db,'main')).find(r=>r.kind==='sale').data.photo,'attached-image');
 }));

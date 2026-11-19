@@ -67,7 +67,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
        if(JSON.stringify(prepared)!==JSON.stringify(draft.prepared))throw new PulError('Ma’lumotlar o‘zgargan. Buyruqni qayta yuboring.');
        ctx.sourceIds=draft.sourceIds||[];
        const saved=await apply(tx,ctx,prepared,todayInTashkent(new Date(draft.at)));
-       const response={text:`Saqlandi.\n${recordSummary(saved,await pulRows(tx,ctx.shopId))}`,...(saved.data.photo?{reply_markup:{inline_keyboard:[[{text:'Rasmni ko‘rish',callback_data:`pul_showphoto:${saved.id}`}]]}}:{})};
+       const response={text:`${recordSummary(saved,await pulRows(tx,ctx.shopId))}\nSaqlandi.`,...(saved.data.photo?{photo:saved.data.photo}:{})};
        await persist(tx,ctx,hash,{...draft,phase:'done'},response);return response;
       });
      }
@@ -241,9 +241,10 @@ async function apply(tx,ctx,p,today){
  return row;
 }
 function incompleteReview(draft,question){
- const p=draft.plan,lines=[`${actions[p.action]||'Yozuv'} — qoralama:`];
- if(p.customer)lines.push(`Mijoz: ${p.customer}`);if(p.phone)lines.push(`Telefon: ${p.phone}`);
+ const p=draft.plan,lines=[];
  if(p.items?.length)for(const i of p.items)lines.push(`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity}${i.unit_price==null?'':' · '+money(minor(i.unit_price),p.currency||'UZS')}`);
+ lines.push(`${actions[p.action]||'Yozuv'} — qoralama:`);
+ if(p.customer)lines.push(`Mijoz: ${p.customer}`);if(p.phone)lines.push(`Telefon: ${p.phone}`);
  if(p.amount!=null)lines.push(`Jami: ${money(minor(p.amount),p.currency||'UZS')}`);
  for(const payment of p.payments||[])lines.push(`To‘lov: ${money(minor(payment.amount),payment.currency)} · ${methods[payment.method]}`);
  if(p.vendor)lines.push(`Provayder: ${p.vendor}`);if(p.financed_amount!=null)lines.push(`Moliyalashtirilgan: ${money(minor(p.financed_amount),p.currency||'UZS')}`);
@@ -252,9 +253,10 @@ function incompleteReview(draft,question){
  return {text:lines.join('\n').slice(0,3100)+'\n\nHali saqlanmadi.\n'+String(question).slice(0,600),reply_markup:{inline_keyboard:[[{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]]}};
 }
 function review(draft){
- const p=draft.prepared,d=p.data,lines=[`${actions[draft.plan.action]||'Amal'} — tekshiring:`,...(p.before?[`ID: ${p.before.id}`]:[])];
- if(d.customer)lines.push(`Mijoz: ${d.customer}`);if(d.phone)lines.push(`Telefon: ${d.phone}`);
+ const p=draft.prepared,d=p.data,lines=[];
  if(d.items)lines.push(...d.items.map(i=>`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity} ${i.unitMinor==null?'': '· '+money(i.unitMinor,d.currency)}`));
+ lines.push(`${actions[draft.plan.action]||'Amal'} — tekshiring:`);
+ if(d.customer)lines.push(`Mijoz: ${d.customer}`);if(d.phone)lines.push(`Telefon: ${d.phone}`);
  if(d.description)lines.push(`Izoh: ${d.description}`);
  if(d.totalMinor==null&&d.totalsByCurrency)lines.push('Jami (valyutalar alohida): '+Object.entries(d.totalsByCurrency).map(([c,n])=>money(n,c)).join(' + '));
  if(d.totalMinor!=null)lines.push(`Summa: ${money(d.totalMinor,d.currency)}`);
@@ -265,13 +267,14 @@ function review(draft){
  if(d.dueDate)lines.push(`To‘lov muddati: ${d.dueDate}`);if(d.reminderDate)lines.push(`Eslatma: ${d.reminderDate}`);
  if(p.kind==='vendor')lines.push(`Provayder: ${d.vendor}`);
  if(p.kind==='purchase'||d.source==='shop')lines.push('Yo‘nalish: pul chiqimi (mijozdan xarid)');
- if(p.reason)lines.push(`Sabab: ${p.reason}`);if(d.photo)lines.push('Rasm: biriktirilgan');
+ if(p.reason)lines.push(`Sabab: ${p.reason}`);
  lines.push('\nHali saqlanmadi. Tasdiqlaysizmi?');
  const rows=[[{text:'Tasdiqlash',style:'success',callback_data:`pul_confirm:${draft.token}`},{text:'Tahrirlash',callback_data:`pul_edit:${draft.token}`}]];
  if(['sale','purchase'].includes(p.kind)&&['sale','purchase','edit'].includes(draft.plan.action))rows.push([{text:d.photo?'Rasmni almashtirish':'Rasm qo‘shish',style:'primary',callback_data:`pul_photo:${draft.token}`}]);
  rows.push([{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]);
+ if(d.photo&&lines.join('\n').length>1000)throw new PulError('Rasmli tasdiqlash matni juda uzun. Yozuvni kichikroq guruhlarga bo‘lib kiriting.');
  if(lines.join('\n').length>3800)throw new PulError('Buyruq juda uzun. Mahsulotlarni kichikroq guruhlarga bo‘lib kiriting.');
- return {text:lines.join('\n'),reply_markup:{inline_keyboard:rows}};
+ return {text:lines.join('\n'),...(d.photo?{photo:d.photo}:{}),reply_markup:{inline_keyboard:rows}};
 }
 async function readAction(db,plan,records,ctx,today){
  if(plan.action==='report'){

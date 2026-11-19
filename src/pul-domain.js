@@ -15,10 +15,11 @@ export function remaining(row,records){if(row.kind==='purchase')return 0;if(row.
 export function providerRemaining(row,records){return Math.max(0,(row.data.expectedVendorMinor||0)-paidTo(records,row.id,'vendor'));}
 export function recordName(r){return `${r.kind==='sale'?'Sotuv/xizmat':r.kind==='purchase'?'Xarid · pul chiqimi':r.kind==='debt'?'Qarz':r.kind==='payment'?'To‘lov':'Provayder'} · ${r.data.customer||r.data.vendor||r.data.description||r.data.items?.map(i=>i.name).join(', ')||''}`;}
 export function recordSummary(r,records){
- const d=r.data,lines=[recordName(r),`ID: ${r.id}`];
+ const d=r.data,lines=d.items?.length?d.items.map(i=>`${i.name} × ${i.quantity}`):[];
+ lines.push(recordName(r));
  if(r.kind==='vendor')lines.push(`Nomi: ${d.vendor}`);
  else if(r.kind==='payment')lines.push(`${d.source==='shop'?'Pul chiqimi':'Pul kirimi'}: ${money(d.amountMinor,d.currency)} · ${d.method}`);
- else{lines.push(d.totalMinor==null&&d.totalsByCurrency?Object.entries(d.totalsByCurrency).map(([c,n])=>money(n,c)).join(' + '):money(d.totalMinor,d.currency));if(d.items)lines.push(...d.items.map(i=>`${i.name} × ${i.quantity}`));if(r.kind!=='purchase')lines.push(`Qarz qoldig‘i: ${money(remaining(r,records),d.currency)}`);if(d.financedMinor)lines.push(`Provayder: ${d.vendorName}`,`Moliyalashtirilgan: ${money(d.financedMinor,d.currency)}`);if(d.dueDate)lines.push(`Muddat: ${d.dueDate}`);if(d.photo)lines.push('Rasm biriktirilgan.');}
+ else{lines.push(d.totalMinor==null&&d.totalsByCurrency?Object.entries(d.totalsByCurrency).map(([c,n])=>money(n,c)).join(' + '):money(d.totalMinor,d.currency));if(r.kind!=='purchase')lines.push(`Qarz qoldig‘i: ${money(remaining(r,records),d.currency)}`);if(d.financedMinor)lines.push(`Provayder: ${d.vendorName}`,`Moliyalashtirilgan: ${money(d.financedMinor,d.currency)}`);if(d.dueDate)lines.push(`Muddat: ${d.dueDate}`);if(d.photo)lines.push('Rasm biriktirilgan.');}
  if(r.is_deleted)lines.push('O‘chirilgan');return lines.join('\n');
 }
 export function paymentData(input,currency,source='customer'){
