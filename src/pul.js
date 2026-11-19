@@ -162,7 +162,7 @@ function prepare(plan,records,ctx,photo){
   if(purchase){
    if(plan.vendor||plan.financed_amount)throw new PulError('Xarid provayder orqali sotuv emas. Chiqim to‘lovlarini ayting.');
    if(data.items.some(i=>i.type!=='product'))throw new PulError('Xarid uchun sotib olingan mahsulotni ayting.');
-   if(!plan.payments||(!mixed&&upfront!==data.totalMinor)||(mixed&&plan.fully_paid!==true))throw new PulError('Xarid uchun to‘liq qancha pul berdingiz va qanday usulda? To‘lovlarni kiriting.');
+   if(!plan.payments||(!mixed&&upfront!==data.totalMinor)||(mixed&&plan.fully_paid===false))throw new PulError('Xarid uchun to‘liq qancha pul berdingiz va qanday usulda? To‘lovlarni kiriting.');
    if(data.totalMinor==null){data.totalsByCurrency={};for(const p of payments)data.totalsByCurrency[p.currency]=(data.totalsByCurrency[p.currency]||0)+p.amountMinor;}
    data.photo=photo||null;return {kind:'purchase',data,before:null,payments};
   }
@@ -178,7 +178,7 @@ function prepare(plan,records,ctx,photo){
   }else if(plan.financed_amount)throw new PulError('Muddatli to‘lov provayderini ayting.');
   if(plan.payments===null&&!data.financedMinor)throw new PulError('Qancha to‘landi va qanday usulda? To‘liq qarz bo‘lsa, «hali to‘lamadi» deb ayting.');
   if(mixed){
-   if(plan.debt_amount==null&&!plan.vendor&&plan.fully_paid!==true)throw new PulError('Valyutalar alohida saqlanadi. To‘liq to‘landimi? Qarz qolgan bo‘lsa, summasi va valyutasini ayting.');
+   if(plan.debt_amount==null&&!plan.vendor&&plan.fully_paid===false)throw new PulError('Qolgan qarz summasi va valyutasini ayting.');
    data.openingDebtMinor=plan.debt_amount==null?0:minor(plan.debt_amount);
    if((plan.fully_paid===true&&data.openingDebtMinor>0)||(data.totalMinor!=null&&upfront+data.financedMinor+data.openingDebtMinor>data.totalMinor))throw new PulError('Qarz, to‘lov va sotuv summalarini tekshiring.');
   }
@@ -250,7 +250,7 @@ async function apply(tx,ctx,p,today){
 function incompleteReview(draft,question){
  const p=draft.plan,lines=[];
  if(p.items?.length)for(const i of p.items)lines.push(`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity}${i.unit_price==null?'':' · '+money(minor(i.unit_price),p.currency||'UZS')}`);
- lines.push(`${actions[p.action]||'Yozuv'} — qoralama:`);
+
  if(p.customer)lines.push(`Mijoz: ${p.customer}`);if(p.phone)lines.push(`Telefon: ${p.phone}`);
  if(p.amount!=null)lines.push(`Jami: ${money(minor(p.amount),p.currency||'UZS')}`);
  for(const payment of p.payments||[])lines.push(`To‘lov: ${money(minor(payment.amount),payment.currency)} · ${methods[payment.method]}`);
