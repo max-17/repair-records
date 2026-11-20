@@ -1,3 +1,4 @@
+import {pulRowsSql} from './pul-tables.js';
 import {pulReadShortcut} from './pul-read-shortcuts.js';
 import {numericProductPlan} from './pul-product-numbers.js';
 import {SpeechInputError} from './speech.js';
@@ -36,7 +37,7 @@ export function pulService({db,parse,transcribeVoice,env={},allowAttribution=fal
   if(prior){if(prior.input_hash!==hash)throw new Error('PUL_REQUEST_CONFLICT');return JSON.parse(prior.result_json);}
   const reads=[];
   if(input.chatId!=null)reads.push({sql:'INSERT INTO pul_workers(shop_id,user_id,name,chat_id) VALUES(?,?,?,?) ON CONFLICT(shop_id,user_id) DO UPDATE SET name=excluded.name,chat_id=excluded.chat_id WHERE name!=excluded.name OR chat_id!=excluded.chat_id',args:[ctx.shopId,ctx.userId,ctx.userName,String(input.chatId)]});
-  reads.push({sql:'SELECT * FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]},{sql:'SELECT * FROM pul_records WHERE shop_id=? ORDER BY created_at DESC,id',args:[ctx.shopId]});
+  reads.push({sql:'SELECT * FROM pul_drafts WHERE shop_id=? AND conversation_id=?',args:[ctx.shopId,ctx.conversationId]},{sql:pulRowsSql+' WHERE r.shop_id=? ORDER BY r.created_at DESC,r.id',args:[ctx.shopId]});
   const state=await db.batch(reads,input.chatId!=null?'write':'read');
   const stored=state.at(-2).rows[0],draft=stored?JSON.parse(stored.state_json):null;
   let text=input.text||'',records=accessibleRows(state.at(-1).rows.map(decodePul),ctx);

@@ -1,3 +1,4 @@
+import {setupPulTables,writePulDetails,pulRowsSql} from './pul-tables.js';
 import {setupSources} from './pul-sources.js';
 import {randomUUID} from 'node:crypto';
 const ready=new WeakMap();
@@ -36,6 +37,7 @@ async function createTables(db){
   before_json TEXT, after_json TEXT NOT NULL, reason TEXT, command_id TEXT NOT NULL
  )`);
  await setupSources(db);
+ await setupPulTables(db);
  await db.execute("CREATE TRIGGER IF NOT EXISTS pul_history_no_update BEFORE UPDATE ON pul_history BEGIN SELECT RAISE(ABORT,'History is immutable'); END");
  await db.execute("CREATE TRIGGER IF NOT EXISTS pul_history_no_delete BEFORE DELETE ON pul_history BEGIN SELECT RAISE(ABORT,'History is immutable'); END");
  await db.execute("CREATE TRIGGER IF NOT EXISTS pul_records_no_delete BEFORE DELETE ON pul_records BEGIN SELECT RAISE(ABORT,'Use soft deletion'); END");
@@ -60,16 +62,17 @@ async function createTables(db){
  )`);
 }
 export const decodePul=row=>row?{...row,data:JSON.parse(row.data_json),version:Number(row.version),is_deleted:Boolean(row.is_deleted)}:null;
-export async function pulRows(db,shopId){return (await db.execute({sql:'SELECT * FROM pul_records WHERE shop_id=? ORDER BY created_at DESC,id',args:[shopId]})).rows.map(decodePul);}
+export async function pulRows(db,shopId){return (await db.execute({sql:pulRowsSql+' WHERE r.shop_id=? ORDER BY r.created_at DESC,r.id',args:[shopId]})).rows.map(decodePul);}
 export async function savePulRecord(tx,ctx,{before=null,kind,data,referenceId=null,deleted=false,reason=null,action}){
  const at=new Date(ctx.now).toISOString(),id=before?.id||randomUUID();
  const worker=before?.worker_id||ctx.workerId||ctx.userId;
  let result;
  if(before){
-  result=await tx.execute({sql:'UPDATE pul_records SET data_json=?,is_deleted=?,version=version+1,updated_at=? WHERE id=? AND shop_id=? AND version=? RETURNING *',args:[JSON.stringify(data),deleted?1:0,at,id,ctx.shopId,before.version]});
+  result=await tx.execute({sql:'UPDATE pul_records SET is_deleted=?,version=version+1,updated_at=? WHERE id=? AND shop_id=? AND version=? RETURNING *',args:[deleted?1:0,at,id,ctx.shopId,before.version]});
   if(result.rows.length!==1)throw new Error('PUL_STALE');
- }else result=await tx.execute({sql:'INSERT INTO pul_records(id,shop_id,kind,reference_id,data_json,worker_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) RETURNING *',args:[id,ctx.shopId,kind,referenceId,JSON.stringify(data),worker,at,at]});
- const after=decodePul(result.rows[0]),historyId=randomUUID();
+ }else result=await tx.execute({sql:'INSERT INTO pul_records(id,shop_id,kind,reference_id,worker_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?) RETURNING *',args:[id,ctx.shopId,kind,referenceId,worker,at,at]});
+ await writePulDetails(tx,id,kind,data,before?.reference_id??referenceId);
+ const after=decodePul({...result.rows[0],data_json:JSON.stringify(data)}),historyId=randomUUID();
  const history=[{sql:'INSERT INTO pul_history(id,shop_id,record_id,action,user_id,user_name,occurred_at,before_json,after_json,reason,command_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',args:[historyId,ctx.shopId,id,action||(!before?'create':'edit'),ctx.userId,ctx.userName,at,before?JSON.stringify(before):null,JSON.stringify(after),reason,ctx.requestId]}];
  for(const [position,sourceId] of (ctx.sourceIds||[]).entries())history.push({sql:'INSERT INTO pul_history_sources(history_id,source_id,position) SELECT ?,id,? FROM pul_sources WHERE id=? AND shop_id=?',args:[historyId,position,sourceId,ctx.shopId]});
  await tx.batch(history);

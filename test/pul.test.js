@@ -165,3 +165,12 @@ test('stated mixed payments default to full settlement with confirm and edit, ex
  const rows=await pulRows(db,'main');assert.equal(remaining(rows.find(r=>r.kind==='sale'),rows),0);
  set({...plan,fully_paid:false});const incomplete=await send();assert.match(incomplete.text,/Qolgan qarz summasi/);assert.doesNotMatch(incomplete.text,/qoralama/);assert.ok(!incomplete.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')));
 }));
+test('separate business tables link sale debt and payments without duplicating ledger rows',()=>fixture(async({db,send,confirm,set})=>{
+ set({action:'sale',customer:'Ali',items:[{name:'iPhone',type:'product',quantity:1,unit_price:null}],currency:'UZS',debt_amount:2000000,payments:[{amount:100,currency:'USD',method:'cash'}]});await confirm(await send());
+ let rows=await pulRows(db,'main');const sale=rows.find(r=>r.kind==='sale');assert.equal(rows.filter(r=>r.kind==='debt').length,0);
+ const debt=(await db.execute('SELECT id,sale_id,principal_minor FROM pul_debts WHERE sale_id=?',[sale.id])).rows[0];assert.equal(debt.principal_minor,200000000);
+ const upfront=(await db.execute('SELECT sale_id,debt_id,amount_minor,currency FROM pul_payments')).rows[0];assert.equal(upfront.sale_id,sale.id);assert.equal(upfront.debt_id,debt.id);assert.equal(upfront.currency,'USD');assert.equal(upfront.amount_minor,10000);
+ set({action:'pay',record_id:sale.id,amount:500000,currency:'UZS',method:'card'});await confirm(await send());rows=await pulRows(db,'main');assert.equal(remaining(rows.find(r=>r.id===sale.id),rows),150000000);
+ assert.equal((await db.execute('SELECT COUNT(*) AS n FROM pul_payments WHERE debt_id=?',[debt.id])).rows[0].n,2);
+ assert.equal((await db.execute('PRAGMA foreign_key_check')).rows.length,0);
+}));
