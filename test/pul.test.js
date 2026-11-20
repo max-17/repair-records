@@ -159,11 +159,11 @@ test('batched audit failure rolls back financial rows and confirmation cache tog
  assert.equal((await db.execute("SELECT json_extract(state_json,'$.phase') AS phase FROM pul_drafts")).rows[0].phase,'pending');
  await db.execute('DROP TRIGGER reject_pul_history');await confirm(review);assert.equal((await pulRows(db,'main')).filter(r=>r.kind==='sale').length,1);
 }));
-test('stated mixed payments default to full settlement with confirm and edit, explicit debt still asks',()=>fixture(async({db,send,confirm,set})=>{
+test('stated mixed payments show save and edit regardless of model completeness flag',()=>fixture(async({db,send,confirm,set})=>{
  const plan={action:'sale',customer:'Sarvar',items:[{name:'iPhone 15 Pro Max',type:'product',quantity:1,unit_price:null}],currency:'UZS',payments:[{amount:5000000,currency:'UZS',method:'cash'},{amount:4000000,currency:'UZS',method:'card'},{amount:200,currency:'USD',method:'cash'}]};
- set(plan);const review=await send();assert.doesNotMatch(review.text,/qoralama|To‘liq to‘landimi/);assert.match(review.text.replace(/\s/g," "),/9 000 000 UZS \+ 200 USD/);assert.ok(review.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_edit:')));await confirm(review);
+ set({...plan,fully_paid:false});const review=await send();assert.doesNotMatch(review.text,/qoralama|To‘liq to‘landimi/);assert.match(review.text.replace(/\s/g," "),/9 000 000 UZS \+ 200 USD/);assert.ok(review.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_edit:')));await confirm(review);
  const rows=await pulRows(db,'main');assert.equal(remaining(rows.find(r=>r.kind==='sale'),rows),0);
- set({...plan,fully_paid:false});const incomplete=await send();assert.match(incomplete.text,/Qolgan qarz summasi/);assert.doesNotMatch(incomplete.text,/qoralama/);assert.ok(!incomplete.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_confirm:')));
+ set({...plan,fully_paid:false});const next=await send();assert.doesNotMatch(next.text,/Qolgan qarz summasi|To‘liq to‘landimi/);assert.ok(next.reply_markup.inline_keyboard.flat().some(b=>b.text==='Saqlash'));assert.ok(next.reply_markup.inline_keyboard.flat().some(b=>b.callback_data.startsWith('pul_edit:')));
 }));
 test('separate business tables link sale debt and payments without duplicating ledger rows',()=>fixture(async({db,send,confirm,set})=>{
  set({action:'sale',customer:'Ali',items:[{name:'iPhone',type:'product',quantity:1,unit_price:null}],currency:'UZS',debt_amount:2000000,payments:[{amount:100,currency:'USD',method:'cash'}]});await confirm(await send());

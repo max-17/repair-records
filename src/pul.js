@@ -163,7 +163,7 @@ function prepare(plan,records,ctx,photo){
   if(purchase){
    if(plan.vendor||plan.financed_amount)throw new PulError('Xarid provayder orqali sotuv emas. Chiqim to‘lovlarini ayting.');
    if(data.items.some(i=>i.type!=='product'))throw new PulError('Xarid uchun sotib olingan mahsulotni ayting.');
-   if(!plan.payments||(!mixed&&upfront!==data.totalMinor)||(mixed&&plan.fully_paid===false))throw new PulError('Xarid uchun to‘liq qancha pul berdingiz va qanday usulda? To‘lovlarni kiriting.');
+   if(!plan.payments||(!mixed&&upfront!==data.totalMinor))throw new PulError('Xarid uchun to‘liq qancha pul berdingiz va qanday usulda? To‘lovlarni kiriting.');
    if(data.totalMinor==null){data.totalsByCurrency={};for(const p of payments)data.totalsByCurrency[p.currency]=(data.totalsByCurrency[p.currency]||0)+p.amountMinor;}
    data.photo=photo||null;return {kind:'purchase',data,before:null,payments};
   }
@@ -179,9 +179,8 @@ function prepare(plan,records,ctx,photo){
   }else if(plan.financed_amount)throw new PulError('Muddatli to‘lov provayderini ayting.');
   if(plan.payments===null&&!data.financedMinor)throw new PulError('Qancha to‘landi va qanday usulda? To‘liq qarz bo‘lsa, «hali to‘lamadi» deb ayting.');
   if(mixed){
-   if(plan.debt_amount==null&&!plan.vendor&&plan.fully_paid===false)throw new PulError('Qolgan qarz summasi va valyutasini ayting.');
    data.openingDebtMinor=plan.debt_amount==null?0:minor(plan.debt_amount);
-   if((plan.fully_paid===true&&data.openingDebtMinor>0)||(data.totalMinor!=null&&upfront+data.financedMinor+data.openingDebtMinor>data.totalMinor))throw new PulError('Qarz, to‘lov va sotuv summalarini tekshiring.');
+   if((data.totalMinor!=null&&upfront+data.financedMinor+data.openingDebtMinor>data.totalMinor))throw new PulError('Qarz, to‘lov va sotuv summalarini tekshiring.');
   }
   if(!mixed&&plan.debt_amount!=null&&minor(plan.debt_amount)!==data.totalMinor-upfront-data.financedMinor)throw new PulError('Aytilgan qarz qoldig‘i to‘lovlarga mos emas.');
   if((mixed?data.openingDebtMinor:data.totalMinor-upfront-data.financedMinor)>0&&!data.customer)throw new PulError('Qolgan qarz uchun mijoz ismini ayting. Telefon ixtiyoriy.');
@@ -249,7 +248,7 @@ async function apply(tx,ctx,p,today){
  return row;
 }
 function incompleteReview(draft,question){
- const p=draft.plan,lines=[];
+ const p=draft.plan,title=actions[p.action]||'Yozuv',lines=[title,''];
  if(p.items?.length)for(const i of p.items)lines.push(`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity}${i.unit_price==null?'':' · '+money(minor(i.unit_price),p.currency||'UZS')}`);
 
  if(p.customer)lines.push(`Mijoz: ${p.customer}`);if(p.phone)lines.push(`Telefon: ${p.phone}`);
@@ -258,12 +257,11 @@ function incompleteReview(draft,question){
  if(p.vendor)lines.push(`Provayder: ${p.vendor}`);if(p.financed_amount!=null)lines.push(`Moliyalashtirilgan: ${money(minor(p.financed_amount),p.currency||'UZS')}`);
  if(p.debt_amount!=null)lines.push(`Qarz: ${money(minor(p.debt_amount),p.currency||'UZS')}`);
  if(p.due_date)lines.push(`Muddat: ${p.due_date}`);if(p.description)lines.push(`Izoh: ${p.description}`);
- return {text:lines.join('\n').slice(0,3100)+'\n\nHali saqlanmadi.\n'+String(question).slice(0,600),reply_markup:{inline_keyboard:[[{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]]}};
+ return {entities:[{type:'bold',offset:0,length:title.length}],text:lines.join('\n').slice(0,3100)+'\n\nHali saqlanmadi.\n'+String(question).slice(0,600),reply_markup:{inline_keyboard:[[{text:'Tahrirlash',callback_data:`pul_edit:${draft.token}`}],[{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]]}};
 }
 function review(draft){
- const p=draft.prepared,d=p.data,lines=[];
+ const p=draft.prepared,d=p.data,title=actions[draft.plan.action]||'Amal',lines=[title,''];
  if(d.items)lines.push(...d.items.map(i=>`${i.type==='service'?'Xizmat':'Mahsulot'}: ${i.name} × ${i.quantity} ${i.unitMinor==null?'': '· '+money(i.unitMinor,d.currency)}`));
- lines.push(`${actions[draft.plan.action]||'Amal'} — tekshiring:`);
  if(d.customer)lines.push(`Mijoz: ${d.customer}`);if(d.phone)lines.push(`Telefon: ${d.phone}`);
  if(d.description)lines.push(`Izoh: ${d.description}`);
  if(d.totalMinor==null&&d.totalsByCurrency)lines.push('Jami (valyutalar alohida): '+Object.entries(d.totalsByCurrency).map(([c,n])=>money(n,c)).join(' + '));
@@ -277,12 +275,12 @@ function review(draft){
  if(p.kind==='purchase'||d.source==='shop')lines.push('Yo‘nalish: pul chiqimi (mijozdan xarid)');
  if(p.reason)lines.push(`Sabab: ${p.reason}`);
  lines.push('\nHali saqlanmadi. Tasdiqlaysizmi?');
- const rows=[[{text:'Tasdiqlash',style:'success',callback_data:`pul_confirm:${draft.token}`},{text:'Tahrirlash',callback_data:`pul_edit:${draft.token}`}]];
+ const rows=[[{text:'Saqlash',style:'success',callback_data:`pul_confirm:${draft.token}`},{text:'Tahrirlash',callback_data:`pul_edit:${draft.token}`}]];
  if(['sale','purchase'].includes(p.kind)&&['sale','purchase','edit'].includes(draft.plan.action))rows.push([{text:d.photo?'Rasmni almashtirish':'Rasm qo‘shish',style:'primary',callback_data:`pul_photo:${draft.token}`}]);
  rows.push([{text:'Bekor qilish',style:'danger',callback_data:`pul_cancel:${draft.token}`}]);
  if(d.photo&&lines.join('\n').length>1000)throw new PulError('Rasmli tasdiqlash matni juda uzun. Yozuvni kichikroq guruhlarga bo‘lib kiriting.');
  if(lines.join('\n').length>3800)throw new PulError('Buyruq juda uzun. Mahsulotlarni kichikroq guruhlarga bo‘lib kiriting.');
- return {text:lines.join('\n'),...(d.photo?{photo:d.photo}:{}),reply_markup:{inline_keyboard:rows}};
+ return {entities:[{type:'bold',offset:0,length:title.length}],text:lines.join('\n'),...(d.photo?{photo:d.photo}:{}),reply_markup:{inline_keyboard:rows}};
 }
 async function readAction(db,plan,records,ctx,today){
  if(plan.action==='report'){
